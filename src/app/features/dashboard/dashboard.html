@@ -1,0 +1,192 @@
+<div class="page">
+  <cf-page-head title="Dashboard" [crumbs]="[session.role()?.name + ' view']">
+    <span class="demo-tag">Prototype · fictional data</span>
+  </cf-page-head>
+
+  <section class="hero">
+    <div class="txt">
+      <h2>{{ greeting }}, {{ firstName() }}</h2>
+      <p>{{ hero()[0] }}</p>
+      <div class="row"><button class="btn white" (click)="go(hero()[2])">{{ hero()[1] }}</button>
+        @if (kind() === 'admin') { <button class="btn glass" (click)="go('/assistant')"><lucide-icon name="sparkles" [size]="16"></lucide-icon>Ask the AI assistant</button> }</div>
+    </div>
+    <svg class="art" viewBox="0 0 260 170" aria-hidden="true"><circle cx="170" cy="96" r="74" fill="rgba(255,255,255,.12)"/><rect x="112" y="92" width="116" height="78" rx="38" fill="#fff"/><path d="M150 92h40l-20 34z" fill="var(--pri-soft)"/><circle cx="170" cy="62" r="30" fill="#f2c9a5"/><path d="M140 58c0-22 14-32 30-32s32 10 30 34c-6-10-18-14-30-14s-24 4-30 12z" fill="#3a2a22"/><path d="M146 106c-8 18-6 34 6 40" stroke="var(--pri-2)" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="154" cy="148" r="6" fill="var(--pri-2)"/><rect x="186" y="112" width="40" height="52" rx="5" fill="var(--blue)" transform="rotate(-10 206 138)"/><rect x="192" y="122" width="26" height="4" rx="2" fill="#fff" transform="rotate(-10 206 138)"/><rect x="192" y="132" width="20" height="4" rx="2" fill="#fff" transform="rotate(-10 206 138)"/><rect x="56" y="40" width="34" height="34" rx="10" fill="rgba(255,255,255,.18)"/><path d="M73 48v18M64 57h18" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg>
+  </section>
+
+  <div class="kpis">
+    @for (k of kpis(); track k.label) {
+      <cf-stat [label]="k.label" [value]="k.value" [of]="k.of" [trend]="k.trend" [tone]="k.tone" [icon]="k.icon" [clickable]="!!k.link" (click)="go(k.link)"></cf-stat>
+    }
+  </div>
+
+  @switch (kind()) {
+    <!-- ================= ADMIN ================= -->
+    @case ('admin') {
+      <div class="card qa">
+        <b>Quick actions</b>
+        <div class="chips">
+          <a class="chip" routerLink="/patients/new"><lucide-icon name="user-plus" [size]="14"></lucide-icon> Register patient</a>
+          <a class="chip" routerLink="/appointments/new"><lucide-icon name="calendar-plus" [size]="14"></lucide-icon> Book appointment</a>
+          <a class="chip" routerLink="/consultation"><lucide-icon name="stethoscope" [size]="14"></lucide-icon> Start consultation</a>
+          <a class="chip" routerLink="/billing/new"><lucide-icon name="receipt" [size]="14"></lucide-icon> Create invoice</a>
+          <a class="chip" routerLink="/lab/orders" [queryParams]="{ new: 1 }"><lucide-icon name="flask-conical" [size]="14"></lucide-icon> Order lab test</a>
+          <a class="chip" routerLink="/ipd/admit"><lucide-icon name="bed-double" [size]="14"></lucide-icon> Admit patient</a>
+          <a class="chip" routerLink="/pharmacy/dispense"><lucide-icon name="pill" [size]="14"></lucide-icon> Dispense medication</a>
+        </div>
+      </div>
+      <div class="mini-row">
+        <div class="mini" (click)="go('/patients')"><b>{{ m().visits }}</b><span>Patient visits today</span></div>
+        <div class="mini" (click)="go('/patients')"><b>{{ m().newRegs }}</b><span>New registrations</span></div>
+        <div class="mini" (click)="go('/queue')"><b>{{ m().consulting }}</b><span>In consultation now</span></div>
+        <div class="mini" (click)="go('/lab/orders')"><b>{{ m().labPending }}</b><span>Pending lab reports</span></div>
+        <div class="mini" (click)="go('/billing')"><b>{{ m().outstanding | inr:true }}</b><span>Outstanding payments</span></div>
+        <div class="mini" (click)="go('/ipd/beds')"><b>{{ m().occ }}</b><span>Occupied beds</span></div>
+        <div class="mini warn" (click)="go('/pharmacy/inventory')"><b>{{ m().lowStock.length }}</b><span>Pharmacy low-stock alerts</span></div>
+        <div class="mini crit" (click)="go('/emergency')"><b>{{ m().er }}</b><span>Emergency cases ({{ m().emergencyAdmits }} admitted)</span></div>
+        <div class="mini" (click)="go('/staff')"><b>{{ m().docsAvail }}/{{ m().docsTotal }}</b><span>Doctors available</span></div>
+      </div>
+      <div class="grid">
+        <div class="card c5"><div class="card-h"><h3>Revenue</h3><span class="muted small">₹ lakh per month</span>
+          <div class="r chips"><button class="chip" [class.on]="revRange()==='6m'" (click)="revRange.set('6m')">6 months</button><button class="chip" [class.on]="revRange()==='12m'" (click)="revRange.set('12m')">12 months</button></div></div>
+          <div class="big">₹{{ revenue().total.toFixed(1) }}L <span class="up">↗ 11% vs last year</span></div>
+          <cf-chart type="line" [labels]="revenue().labels" [datasets]="[{ data: revenue().data, borderColor: '--pri', pointBackgroundColor: '--card', pointBorderColor: '--pri', pointRadius: 4, borderWidth: 2.5, tension: 0 }]" [options]="{ scales: { y: { beginAtZero: false } } }" [height]="220"></cf-chart>
+        </div>
+        <div class="card c4"><div class="card-h"><h3>Appointments by hour</h3><a class="r small" routerLink="/appointments">Calendar</a></div>
+          <cf-chart type="bar" [labels]="hourly().labels" [datasets]="[{ data: hourly().data, backgroundColor: '--pri', borderRadius: 6, barPercentage: .6 }]" [height]="250"></cf-chart>
+        </div>
+        <div class="card c3"><div class="card-h"><h3>Bed occupancy</h3></div>
+          <cf-chart type="doughnut" [labels]="['Occupied', 'Available', 'Reserved', 'Cleaning / maintenance']" [datasets]="[{ data: bedChart(), backgroundColor: ['--pink', '--pri', '--blue', '--amber'] }]" [centerText]="['Occupancy', pct(m().occ, m().bedsTotal) + '%']" [height]="190"></cf-chart>
+          <div class="legend" style="justify-content:center;margin-top:10px"><span><i style="background:var(--pink)"></i>Occupied {{ bedChart()[0] }}</span><span><i style="background:var(--pri)"></i>Free {{ bedChart()[1] }}</span><span><i style="background:var(--blue)"></i>Reserved {{ bedChart()[2] }}</span><span><i style="background:var(--amber)"></i>Cleaning {{ bedChart()[3] }}</span></div>
+        </div>
+
+        <div class="card c7"><div class="card-h"><h3>Patient queue now</h3><span class="muted small">Tokens at each stage of the visit</span><a class="r small" routerLink="/queue">Open journey board</a></div>
+          <div class="flow">
+            @for (s of queueByStep(); track s.s; let i = $index) {
+              <div class="fs"><div class="fb"><span [style.height.%]="s.n / queueMax() * 100"></span></div><b>{{ s.n }}</b><small>{{ s.s }}</small></div>
+              @if (i < queueByStep().length - 1) { <lucide-icon name="chevron-right" [size]="14" class="fa"></lucide-icon> }
+            }
+          </div>
+        </div>
+        <div class="card c5"><div class="card-h"><h3>Pending tasks</h3></div>
+          <div class="tasks">@for (t of tasks(); track t.text) { <button (click)="go(t.link)"><span class="st {{ t.tone }} ic"><lucide-icon [name]="t.icon" [size]="15"></lucide-icon></span><span>{{ t.text }}</span><lucide-icon name="chevron-right" [size]="15"></lucide-icon></button> }</div>
+        </div>
+
+        <div class="card c7"><div class="card-h"><h3>Department performance</h3><span class="muted small">This month</span><a class="r small" routerLink="/reports">Reports</a></div>
+          <div class="tbl"><table class="t"><thead><tr><th>Department</th><th class="num">Visits</th><th class="num">Completed</th><th class="num">Revenue</th><th>Avg wait</th></tr></thead><tbody>
+            @for (d of deptPerf(); track d.name) { <tr><td><b>{{ d.name }}</b></td><td class="num">{{ d.visits }}</td><td class="num">{{ d.done }}</td><td class="num">{{ d.rev | inr }}</td><td><div class="row" style="flex-wrap:nowrap"><div class="bar" style="width:80px"><span [style.width.%]="d.wait / 45 * 100" [style.background]="d.wait > 30 ? 'var(--red)' : d.wait > 20 ? 'var(--amber)' : 'var(--pri)'"></span></div><span class="small">{{ d.wait }} min</span></div></td></tr> }
+          </tbody></table></div>
+        </div>
+        <div class="card c5"><div class="card-h"><h3>Doctor availability</h3><a class="r small" routerLink="/staff">Roster</a></div>
+          <div class="tl">@for (x of doctorsToday().slice(0, 6); track x.d.id) {
+            <div class="tl-row"><time>{{ x.d.start }}</time><span class="dot" [style.background]="x.d.status === 'Running late' ? 'var(--pink)' : x.d.status === 'In OT' ? 'var(--amber)' : x.d.status === 'On leave' ? 'var(--line)' : 'var(--pri)'"></span>
+              <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div><b>{{ x.d.name }}</b><span class="sub">{{ store.dept(x.d.deptId)?.name }} · {{ x.d.room }} · {{ x.left }} left</span></div><cf-status [s]="x.d.status"></cf-status></div></div>
+          }</div>
+        </div>
+
+        <div class="card c8"><div class="card-h"><h3>Upcoming appointments</h3><a class="r btn ghost sm" routerLink="/appointments">Show all</a></div>
+          <div class="tbl"><table class="t"><thead><tr><th>Patient</th><th>Time</th><th>Doctor</th><th>Status</th><th></th></tr></thead><tbody>
+            @for (a of upcoming(); track a.id) {
+              <tr class="click" [routerLink]="['/patients', a.patientId]"><td><div class="pname"><cf-avatar [name]="store.pname(a.patientId)"></cf-avatar><div>{{ store.pname(a.patientId) }}<small>{{ a.patientId }} · {{ a.token }}</small></div></div></td><td>{{ a.time | time12 }}</td><td>{{ store.dname(a.doctorId) }}<small class="muted" style="display:block">{{ store.dept(a.deptId)?.name }}</small></td><td><cf-status [s]="a.status"></cf-status></td>
+                <td (click)="$event.stopPropagation()">@if (['Scheduled', 'Confirmed'].includes(a.status)) { <button class="btn ghost sm" (click)="checkIn(a.id)">Check in</button> }</td></tr>
+            }
+          </tbody></table></div>
+        </div>
+        <div class="card c4"><div class="card-h"><h3>Notifications</h3><a class="r small" routerLink="/notifications">All</a></div>
+          <div class="tasks">@for (n of store.db.inbox.slice(0, 5); track n.id) { <button (click)="go(n.link)"><span class="st {{ n.tone }} ic"><lucide-icon [name]="n.icon" [size]="15"></lucide-icon></span><span><b>{{ n.title }}</b><br><span class="muted small">{{ n.body }}</span></span></button> }</div>
+        </div>
+      </div>
+    }
+
+    <!-- ================= DOCTOR ================= -->
+    @case ('doctor') {
+      <div class="grid">
+        <div class="card c7"><div class="card-h"><h3>My queue</h3><span class="muted small">OPD-3 · General medicine</span><a class="r small" routerLink="/queue">Journey board</a></div>
+          <div class="tasks">@for (q of myQueue(); track q.token) {
+            <button (click)="go('/consultation/' + q.patientId)"><cf-avatar [name]="store.pname(q.patientId)"></cf-avatar><span><b>{{ store.pname(q.patientId) }}</b><br><span class="muted small">{{ q.token }} · {{ journey[q.step] }} · waiting {{ q.since }} min</span></span>
+              @if (q.priority) { <cf-status s="Priority" tone="r"></cf-status> }<span class="btn sm" [class.ghost]="q.step !== 3">{{ q.step === 3 ? 'Consult now' : 'Open' }}</span></button>
+          } @empty { <cf-empty icon="users" title="No one waiting" text="New check-ins will appear here."></cf-empty> }</div>
+        </div>
+        <div class="card c5"><div class="card-h"><h3>Results to review</h3><a class="r small" routerLink="/lab/orders">Lab</a></div>
+          <div class="tasks">@for (o of docResults(); track o.id) {
+            <button [routerLink]="['/lab/report', o.id]"><span class="st {{ store.criticals(o).length ? 'r' : 'b' }} ic"><lucide-icon name="flask-conical" [size]="15"></lucide-icon></span><span><b>{{ store.pname(o.patientId) }}</b><br><span class="muted small">{{ store.codes(o.testIds) }} · {{ o.date | d }}</span></span><cf-status [s]="o.status"></cf-status></button>
+          }</div>
+        </div>
+        <div class="card c7"><div class="card-h"><h3>Today's schedule</h3></div>
+          <cf-chart type="bar" [labels]="hourly().labels" [datasets]="[{ data: hourlyMine(), backgroundColor: '--pri', borderRadius: 6, barPercentage: .5 }]" [height]="200"></cf-chart>
+        </div>
+        <div class="card c5"><div class="card-h"><h3>Clinical safety (demo alerts)</h3><a class="r small" routerLink="/clinical-safety">Open</a></div>
+          <div class="stack-s">
+            <div class="alert-box crit"><lucide-icon name="shield-alert" [size]="16"></lucide-icon><span>Lakshmi Narayan: sulfonamide allergy on record. Avoid co-trimoxazole.</span></div>
+            <div class="alert-box warn"><lucide-icon name="flask-conical" [size]="16"></lucide-icon><span>Rohit Menon: potassium 6.2 mmol/L (critical high).</span></div>
+            <p class="small muted">Simulated alerts from mock data. Not validated clinical decision support.</p>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- ================= RECEPTION ================= -->
+    @case ('reception') {
+      <div class="card qa"><b>Front desk</b><div class="chips">
+        <a class="chip" routerLink="/patients/new"><lucide-icon name="user-plus" [size]="14"></lucide-icon> Register patient</a>
+        <a class="chip" routerLink="/appointments/new"><lucide-icon name="calendar-plus" [size]="14"></lucide-icon> Book appointment</a>
+        <a class="chip" routerLink="/appointments/new" [queryParams]="{ walkin: 1 }"><lucide-icon name="ticket" [size]="14"></lucide-icon> Walk-in token</a>
+        <a class="chip" routerLink="/billing/new"><lucide-icon name="receipt" [size]="14"></lucide-icon> Collect payment</a>
+        <a class="chip" routerLink="/kiosk"><lucide-icon name="monitor" [size]="14"></lucide-icon> Open kiosk</a></div></div>
+      <div class="grid">
+        <div class="card c8"><div class="card-h"><h3>Arrivals today</h3><a class="r btn ghost sm" routerLink="/appointments">Calendar</a></div>
+          <div class="tbl"><table class="t"><thead><tr><th>Time</th><th>Patient</th><th>Doctor</th><th>Status</th><th></th></tr></thead><tbody>
+            @for (a of upcoming(); track a.id) {
+              <tr><td>{{ a.time | time12 }}</td><td><div class="pname"><cf-avatar [name]="store.pname(a.patientId)"></cf-avatar><div>{{ store.pname(a.patientId) }}<small>{{ a.patientId }}</small></div></div></td><td>{{ store.dname(a.doctorId) }}</td><td><cf-status [s]="a.status"></cf-status></td>
+                <td>@if (['Scheduled', 'Confirmed'].includes(a.status)) { <button class="btn sm" (click)="checkIn(a.id)">Check in</button> } @else { <span class="muted small">{{ a.token }}</span> }</td></tr>
+            }</tbody></table></div>
+        </div>
+        <div class="card c4"><div class="card-h"><h3>Queue by stage</h3></div>
+          <div class="stack-s">@for (s of queueByStep(); track s.s) { <div class="row" style="flex-wrap:nowrap"><span style="width:110px" class="small">{{ s.s }}</span><div class="bar" style="flex:1"><span [style.width.%]="s.n / queueMax() * 100"></span></div><b class="tnum">{{ s.n }}</b></div> }</div>
+          <a class="btn ghost" style="margin-top:14px;width:100%" routerLink="/queue">Manage queue</a>
+        </div>
+      </div>
+    }
+
+    <!-- ================= NURSE ================= -->
+    @case ('nurse') {
+      <div class="card"><div class="card-h"><h3>Patients on my shift</h3><span class="muted small">Morning shift · General ward A, ICU</span><a class="r btn ghost sm" routerLink="/nursing">Nursing board</a></div>
+        <div class="tbl"><table class="t"><thead><tr><th>Bed</th><th>Patient</th><th>Diagnosis</th><th>Last vitals</th><th>NEWS</th><th>Medicines due</th></tr></thead><tbody>
+          @for (r of nurseRows(); track r.a.id) {
+            <tr class="click" [routerLink]="['/ipd/admission', r.a.id]"><td><b>{{ r.bed.label }}</b></td><td><div class="pname"><cf-avatar [name]="r.p.name"></cf-avatar><div>{{ r.p.name }}<small>{{ r.p.dob | age }} y · {{ r.p.gender }}</small></div></div></td><td class="wrap">{{ r.a.reason }}</td>
+              <td class="small">BP {{ r.last?.bp }} · HR {{ r.last?.hr }} · SpO₂ {{ r.last?.spo2 }}%</td><td><cf-status [s]="'' + (r.last?.news ?? 0)" [tone]="(r.last?.news ?? 0) >= 5 ? 'r' : (r.last?.news ?? 0) >= 3 ? 'a' : 'g'"></cf-status></td><td>{{ r.due.length }}</td></tr>
+          }</tbody></table></div>
+      </div>
+    }
+
+    <!-- ================= PHARMACY ================= -->
+    @case ('pharmacy') {
+      <div class="grid">
+        <div class="card c7"><div class="card-h"><h3>Prescriptions to dispense</h3><a class="r btn sm" routerLink="/pharmacy/dispense">Open dispensing</a></div>
+          <div class="tasks">@for (r of rxQueue(); track r.id) { <button [routerLink]="['/pharmacy/dispense']" [queryParams]="{ rx: r.id }"><cf-avatar [name]="store.pname(r.patientId)"></cf-avatar><span><b>{{ store.pname(r.patientId) }}</b><br><span class="muted small">{{ r.items.length }} items · {{ store.dname(r.doctorId) }} · {{ r.id }}</span></span><cf-status [s]="r.status"></cf-status></button> } @empty { <cf-empty icon="pill" title="All prescriptions dispensed"></cf-empty> }</div>
+        </div>
+        <div class="card c5"><div class="card-h"><h3>Stock alerts</h3><a class="r small" routerLink="/pharmacy/inventory">Inventory</a></div>
+          <div class="tasks">@for (m of m().lowStock.slice(0, 4); track m.id) { <button routerLink="/pharmacy/inventory"><span class="st p ic"><lucide-icon name="package" [size]="15"></lucide-icon></span><span><b>{{ m.brand }} {{ m.strength }}</b><br><span class="muted small">{{ store.stock(m) }} left · reorder at {{ m.reorder }}</span></span></button> }
+            @for (x of m().nearExpiry.slice(0, 3); track x.b.batch) { <button routerLink="/pharmacy/inventory"><span class="st a ic"><lucide-icon name="hourglass" [size]="15"></lucide-icon></span><span><b>{{ x.m.brand }} · {{ x.b.batch }}</b><br><span class="muted small">Expires {{ x.b.expiry | d:true }} · {{ x.b.qty }} units</span></span></button> }</div>
+        </div>
+      </div>
+    }
+
+    <!-- ================= LAB ================= -->
+    @case ('lab') {
+      <div class="card"><div class="card-h"><h3>Today's worklist</h3><div class="r row"><a class="btn ghost sm" routerLink="/lab/samples">Sample collection</a><a class="btn sm" routerLink="/lab/results">Result entry</a></div></div>
+        <div class="tbl"><table class="t"><thead><tr><th>Order</th><th>Patient</th><th>Tests</th><th>Priority</th><th>Status</th><th>Ordered</th></tr></thead><tbody>
+          @for (o of labQueue(); track o.id) { <tr class="click" [routerLink]="['/lab/results', o.id]"><td><b>{{ o.id }}</b></td><td>{{ store.pname(o.patientId) }}</td><td>{{ store.codes(o.testIds) }}</td><td><cf-status [s]="o.priority"></cf-status></td><td><cf-status [s]="o.status"></cf-status></td><td>{{ o.time }}</td></tr> }
+        </tbody></table></div>
+      </div>
+      <div class="card"><div class="card-h"><h3>Turnaround time by test</h3><span class="muted small">Hours, target vs actual (demo)</span></div>
+        <cf-chart type="bar" [labels]="['CBC', 'FBS', 'HbA1c', 'Lipid', 'TFT', 'LFT', 'KFT', 'Urine']" [datasets]="[{ label: 'Target', data: [4, 2, 6, 6, 8, 6, 6, 3], backgroundColor: '--line', borderRadius: 6 }, { label: 'Actual', data: [3.2, 1.6, 5.1, 6.8, 7.2, 5.4, 6.3, 2.4], backgroundColor: '--pri', borderRadius: 6 }]" [legend]="true" [height]="220"></cf-chart>
+      </div>
+    }
+
+    @default {
+      <div class="card"><div class="card-h"><h3>Pending tasks</h3></div>
+        <div class="tasks">@for (t of tasks(); track t.text) { <button (click)="go(t.link)"><span class="st {{ t.tone }} ic"><lucide-icon [name]="t.icon" [size]="15"></lucide-icon></span><span>{{ t.text }}</span><lucide-icon name="chevron-right" [size]="15"></lucide-icon></button> }</div>
+      </div>
+    }
+  }
+</div>
