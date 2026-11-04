@@ -56,3 +56,33 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 - **Optimistic locking:** editable records carry `version int`; updates send it and get 409 when stale.
 - **Tests:** `@SpringBootTest` + MockMvc against PostgreSQL with `@ActiveProfiles("test")` and `@Import(CleanDatabase.class)`.
   See `FoundationTest` for signing in as different roles.
+
+## API (clinical)
+
+Consultations, vitals, diagnoses and prescriptions. Package `com.hospitos.clinical`, migrations V20–V22.
+Reading is open to super-admin, admin, doctor, nurse, pharmacist, lab-tech, radiologist and billing; writing notes and
+prescriptions to super-admin, admin and doctor; nurses may also record vitals. A doctor account linked to a doctor
+profile can only write as that doctor. Every read of a single record is audited.
+
+| Method and path | What |
+| --- | --- |
+| `GET /api/clinical/consultations?patientId=&doctorId=&status=&date=` | List, newest first (vitals history left out). |
+| `POST /api/clinical/consultations` `{patientId, doctorId, appointmentId?}` | Opens the patient's draft with this doctor, or starts one prefilled from the patient record and the last height and weight. |
+| `GET /api/clinical/consultations/{id}` | `{consultation, prescription, alerts}`. |
+| `PUT /api/clinical/consultations/{id}` | Saves a draft: notes, `dx[]`, `vitals` (a new reading when they changed) and `prescription {items, notes}` as the linked draft prescription. Needs `version`. |
+| `POST /api/clinical/consultations/{id}/vitals` | Adds a vitals reading (doctor or nurse). |
+| `POST /api/clinical/consultations/{id}/complete` `{version, prescription?, overrideReason?}` | Signs the consultation and signs the prescription and sends it to the pharmacy, in one transaction. |
+| `GET /api/clinical/prescriptions?status=&patientId=` | List, for example `status=Sent to pharmacy`. |
+| `GET /api/clinical/prescriptions/{id}` | `{prescription, alerts}`. |
+| `POST /api/clinical/prescriptions`, `PUT /api/clinical/prescriptions/{id}` | Create or edit a draft. |
+| `POST /api/clinical/prescriptions/{id}/sign` `{version, sendToPharmacy, overrideReason?}`, `POST .../{id}/send` | Sign, and send a signed prescription to the pharmacy. |
+| `POST /api/clinical/prescriptions/check` `{patientId, items}` | Safety screen for unsaved lines. |
+
+**Safety checks.** Lines are screened against the patient's recorded allergies (class rules such as Penicillin →
+amoxicillin, plus any allergy recorded as a drug name), drug interactions and duplicate ingredients. The demo rules live in
+`drug_allergy_rule` and `drug_interaction_rule` and are **not validated clinical decision support**; replace them with a
+reviewed drug knowledge base before real use. Signing with a critical alert returns **422** with the alerts in `alerts`
+until an `overrideReason` (5+ characters) is given; the reason is stored per alert in `prescription_override` and audited.
+
+**For the pharmacy module:** `PrescriptionService.find(UUID)` and `PrescriptionService.markDispensed(UUID, partial)`
+(allowed only from `Sent to pharmacy` or `Partially dispensed`). They do not check roles or audit, so the caller does.
