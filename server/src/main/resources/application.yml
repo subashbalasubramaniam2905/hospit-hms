@@ -25,3 +25,5 @@ hospitos:
     email: ${ADMIN_EMAIL:}
     password: ${ADMIN_PASSWORD:}
     name: ${ADMIN_NAME:Super Admin}
+  # Clinic time zone for appointments and the queue.
+  timezone: ${HOSPITOS_TIMEZONE:Asia/Kolkata}

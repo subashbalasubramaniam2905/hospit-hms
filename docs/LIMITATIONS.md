@@ -35,3 +35,9 @@ HospitOS is a review prototype. It is **not production-ready** and must not be u
 - Report figures before today for some charts (bed occupancy trend, lab TAT) are illustrative.
 - Accessibility has been considered (labels, contrast, keyboard focus) but not audited against WCAG 2.2.
 - No automated unit or end-to-end test suite is committed; testing so far was scripted browser checks across every route and role.
+
+## Appointments and queue (live mode)
+- Booking, calendar, check-in, walk-ins and the queue journey run on the server. The kiosk, patient portal, dashboard and consultation screens still read and change only the in-browser copy, so a check-in from the kiosk or a consultation finishing does not move the server queue yet.
+- "Send reminder" records that a reminder was sent; no WhatsApp or SMS goes out until a messaging provider is connected.
+- The server works in clinic time (Asia/Kolkata by default). The browser's "today" comes from the computer's clock, so front-desk computers must be set to the clinic's time zone.
+- Doctor leave can be added through the API (`/api/appointments/leave`); there is no screen for it yet.

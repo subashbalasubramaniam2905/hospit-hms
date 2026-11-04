@@ -39,7 +39,7 @@ export interface Appointment {
 }
 
 export const JOURNEY = ['Registration', 'Billing', 'Triage', 'Consultation', 'Lab / imaging', 'Pharmacy', 'Discharge'] as const;
-export interface QueueEntry { token: string; patientId: string; doctorId: string; deptId: string; step: number; since: number; arrivedAt: string; priority: boolean; emergency: boolean; appointmentId?: string; history: { step: number; at: string }[]; }
+export interface QueueEntry { id?: number; token: string; patientId: string; doctorId: string; deptId: string; step: number; since: number; arrivedAt: string; priority: boolean; emergency: boolean; appointmentId?: string; history: { step: number; at: string }[]; }
 
 export interface Vitals { bp: string; hr: number | null; temp: number | null; rr: number | null; spo2: number | null; height: number | null; weight: number | null; }
 export interface Diagnosis { code: string; label: string; }
@@ -69,13 +69,18 @@ export type ImgStatus = 'Ordered' | 'Scheduled' | 'In progress' | 'Awaiting repo
 export interface ImagingOrder { id: string; patientId: string; doctorId: string; modality: 'X-ray' | 'CT' | 'MRI' | 'Ultrasound'; study: string; date: string; slot: string; room: string; status: ImgStatus; technician?: string; radiologist?: string; findings?: string; impression?: string; billed: boolean; price: number; priority: 'Routine' | 'Urgent'; }
 
 export type PayMode = 'Cash' | 'UPI' | 'Card' | 'Bank transfer' | 'Online' | 'Insurance' | 'Advance';
-export interface InvoiceItem { desc: string; category: 'Consultation' | 'Procedure' | 'Laboratory' | 'Imaging' | 'Pharmacy' | 'Room' | 'Nursing' | 'OT' | 'Other'; qty: number; rate: number; taxPct: number; refId?: string; }
-export interface Payment { id: string; date: string; mode: PayMode; amount: number; ref?: string; }
-export interface Invoice { id: string; patientId: string; date: string; items: InvoiceItem[]; discountPct: number; payments: Payment[]; refunds: Payment[]; status: 'Draft' | 'Unpaid' | 'Partially paid' | 'Paid' | 'Refunded' | 'Cancelled'; claimId?: string; admissionId?: string; createdBy: string; kind: 'OPD' | 'IPD' | 'Pharmacy' | 'Lab'; }
+export interface InvoiceItem { desc: string; category: 'Consultation' | 'Procedure' | 'Laboratory' | 'Imaging' | 'Pharmacy' | 'Room' | 'Nursing' | 'OT' | 'Other'; qty: number; rate: number; taxPct: number; refId?: string; refType?: string; tariffCode?: string; hsnSac?: string; amount?: number; }
+export interface Payment { id: string; date: string; mode: PayMode; amount: number; ref?: string; receipt?: string; }
+export interface Invoice { id: string; patientId: string; date: string; items: InvoiceItem[]; discountPct: number; payments: Payment[]; refunds: Payment[]; status: 'Draft' | 'Unpaid' | 'Partially paid' | 'Paid' | 'Refunded' | 'Cancelled'; claimId?: string; admissionId?: string; createdBy: string; kind: 'OPD' | 'IPD' | 'Pharmacy' | 'Lab';
+  /** Live mode only: the server's invoice number, patient name, GSTIN and authoritative totals. */
+  number?: string; patientName?: string; gstin?: string; claimNumber?: string; cancelReason?: string; version?: number; totals?: InvoiceTotals; }
+export interface InvoiceTotals { sub: number; discount: number; tax: number; cgst: number; sgst: number; igst: number; roundOff: number; total: number; paid: number; due: number; }
 
 export interface InsuranceProvider { id: string; name: string; tpa: string; type: 'Insurer' | 'Government' | 'Corporate'; phone: string; cashless: boolean; }
 export type ClaimStatus = 'Draft' | 'Submitted' | 'Under review' | 'Approved' | 'Rejected' | 'Settled';
-export interface Claim { id: string; patientId: string; invoiceId?: string; admissionId?: string; providerId: string; policyNo: string; claimed: number; approved: number; copay: number; status: ClaimStatus; type: 'Pre-authorisation' | 'Final claim' | 'Reimbursement'; created: string; docs: string[]; rejectionReason?: string; history: { date: string; status: ClaimStatus; note: string }[]; }
+export interface Claim { id: string; patientId: string; invoiceId?: string; admissionId?: string; providerId: string; policyNo: string; claimed: number; approved: number; copay: number; status: ClaimStatus; type: 'Pre-authorisation' | 'Final claim' | 'Reimbursement'; created: string; docs: string[]; rejectionReason?: string; history: { date: string; status: ClaimStatus; note: string }[];
+  /** Live mode only. */
+  number?: string; patientName?: string; providerName?: string; tpa?: string; invoiceNumber?: string; version?: number; }
 
 export interface Ward { id: string; name: string; type: 'General' | 'Semi-private' | 'Private' | 'ICU' | 'Maternity' | 'Pediatric'; floor: string; rate: number; }
 export type BedStatus = 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'Maintenance';

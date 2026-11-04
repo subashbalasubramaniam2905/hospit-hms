@@ -1,10 +1,12 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { SHARED, fmtDate } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Appointment, ApptStatus } from '../../core/models';
 import { isoDay } from '../../core/data/seed';
+import { FrontDeskService } from '../../core/services/front-desk.service';
+import { apiMessage } from '../../core/api/appointments-api';
 
 type View = 'day' | 'week' | 'month' | 'list';
 const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
@@ -139,10 +141,10 @@ const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h
         @if (resch()) {
           <div class="soft stack-s">
             <b>Reschedule</b>
-            <div class="form-grid"><div class="field"><label>New date</label><input class="inp" type="date" [(ngModel)]="rDate" (ngModelChange)="rTime = ''"></div>
-            <div class="field"><label>Free slot</label><select class="inp" [(ngModel)]="rTime"><option value="">Choose</option>@for (t of store.freeSlots(a.doctorId, rDate); track t) {<option [value]="t">{{ t | time12 }}</option>}</select></div></div>
-            @if (rDate && !store.freeSlots(a.doctorId, rDate).length) { <span class="errmsg">No free slots on this date. {{ store.checkSlot(a.doctorId, rDate, '10:00', a.duration).reason }}</span> }
-            <div class="row"><button class="btn sm" [disabled]="!rTime" (click)="doResch(a)">Confirm new time</button><button class="btn ghost sm" (click)="resch.set(false)">Cancel</button></div>
+            <div class="form-grid"><div class="field"><label>New date</label><input class="inp" type="date" [min]="store.today()" [ngModel]="rDate" (ngModelChange)="pickRDate(a, $event)"></div>
+            <div class="field"><label>Free slot</label><select class="inp" [(ngModel)]="rTime"><option value="">Choose</option>@for (t of rFree(); track t) {<option [value]="t">{{ t | time12 }}</option>}</select></div></div>
+            @if (rDate && rLoaded() && !rFree().length) { <span class="errmsg">No free slots on this date. {{ rBlock() }}</span> }
+            <div class="row"><button class="btn sm" [disabled]="!rTime || busy()" (click)="doResch(a)">Confirm new time</button><button class="btn ghost sm" (click)="resch.set(false)">Cancel</button></div>
           </div>
         }
         <div class="section-title">Actions</div>
@@ -150,8 +152,8 @@ const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h
           @if (a.status === 'Scheduled') { <button class="btn sm" (click)="set(a, 'Confirmed')"><lucide-icon name="check" [size]="15"></lucide-icon>Confirm</button> }
           @if (canCheckIn(a)) { <button class="btn sm" (click)="set(a, 'Arrived')"><lucide-icon name="user-check" [size]="15"></lucide-icon>Check in</button> }
           @if (open(a)) {
-            <button class="btn ghost sm" (click)="resch.set(true); rDate = a.date; rTime = ''"><lucide-icon name="calendar-clock" [size]="15"></lucide-icon>Reschedule</button>
-            <button class="btn ghost sm" (click)="store.sendReminder(a.id); toast.ok('Reminder sent on WhatsApp (simulated)')"><lucide-icon name="send" [size]="15"></lucide-icon>Send reminder</button>
+            <button class="btn ghost sm" (click)="resch.set(true); pickRDate(a, a.date)"><lucide-icon name="calendar-clock" [size]="15"></lucide-icon>Reschedule</button>
+            <button class="btn ghost sm" (click)="remind(a)"><lucide-icon name="send" [size]="15"></lucide-icon>Send reminder</button>
             <button class="btn ghost sm" (click)="set(a, 'No-show')"><lucide-icon name="user-x" [size]="15"></lucide-icon>No-show</button>
             <button class="btn ghost sm" style="color:var(--red)" (click)="set(a, 'Cancelled')"><lucide-icon name="circle-x" [size]="15"></lucide-icon>Cancel</button>
           }
@@ -162,10 +164,21 @@ const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h
   </cf-drawer>`
 })
 export class CalendarPage {
-  store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  store = inject(StoreService); fd = inject(FrontDeskService); toast = inject(ToastService); router = inject(Router);
+  busy = signal(false); rFree = signal<string[]>([]); rBlock = signal(''); rLoaded = signal(false); private rReq = 0;
   views: View[] = ['day', 'week', 'month', 'list']; hours = HOURS;
   view = signal<View>('day'); date = signal(this.store.today()); dept = signal(''); doc = signal('');
   sel = signal<Appointment | null>(null); resch = signal(false); rDate = ''; rTime = '';
+
+  constructor() {
+    // With the server connected, load the six weeks around the date on screen (covers day, week and month views).
+    effect(() => {
+      if (!this.fd.live) return;
+      const d = new Date(this.date() + 'T00:00'); const first = new Date(d.getFullYear(), d.getMonth(), 1);
+      const from = isoDay(-((first.getDay() + 6) % 7) - 7, first), to = isoDay(49, new Date(from + 'T00:00'));
+      this.fd.loadAppointments(from, to).catch(e => this.toast.err(apiMessage(e, 'Could not load appointments')));
+    });
+  }
   cols = [
     { key: 'patient', label: 'Patient', value: (a: Appointment) => this.store.pname(a.patientId) }, { key: 'time', label: 'When', value: (a: Appointment) => a.date + a.time },
     { key: 'doctor', label: 'Doctor', value: (a: Appointment) => this.store.dname(a.doctorId) }, { key: 'type', label: 'Type' }, { key: 'token', label: 'Token' },
@@ -217,16 +230,44 @@ export class CalendarPage {
   shift(n: number) { const d = new Date(this.date() + 'T00:00'); if (this.view() === 'month') { d.setMonth(d.getMonth() + n); this.date.set(isoDay(0, d)); } else this.date.set(isoDay(n * (this.view() === 'day' ? 1 : 7), d)); }
   open(a: Appointment) { return !['Completed', 'Cancelled', 'No-show', 'In consultation'].includes(a.status); }
   canCheckIn(a: Appointment) { return a.date === this.store.today() && (a.status === 'Scheduled' || a.status === 'Confirmed'); }
-  set(a: Appointment, s: ApptStatus) {
-    this.store.setApptStatus(a.id, s);
-    const msg: Record<string, string> = { Confirmed: 'Appointment confirmed. Patient notified on WhatsApp (simulated).', Arrived: `Checked in. Token ${a.token} added to the queue.`, Cancelled: 'Appointment cancelled. The slot is free again.', 'No-show': 'Marked as no-show. A follow-up call task was not created in this demo.' };
-    this.toast.ok(msg[s] ?? `Marked ${s}`);
-    this.sel.set(this.store.db.appointments.find(x => x.id === a.id) ?? null);
+  async set(a: Appointment, s: ApptStatus) {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      const fresh = await this.fd.setStatus(a.id, s);
+      const msg: Record<string, string> = { Confirmed: 'Appointment confirmed.', Arrived: `Checked in. Token ${fresh?.token ?? a.token} added to the queue.`, Cancelled: 'Appointment cancelled. The slot is free again.', 'No-show': 'Marked as no-show.' };
+      this.toast.ok(msg[s] ?? `Marked ${s}`);
+      this.sel.set(fresh ?? null);
+    } catch (e) { this.toast.err(apiMessage(e, `Could not mark the appointment ${s}`)); }
+    finally { this.busy.set(false); }
   }
-  doResch(a: Appointment) { this.store.reschedule(a.id, this.rDate, this.rTime); this.toast.ok(`Moved to ${fmtDate(this.rDate)} at ${this.rTime}. Patient notified (simulated).`); this.resch.set(false); this.date.set(this.rDate); }
+  pickRDate(a: Appointment, date: string) {
+    this.rDate = date; this.rTime = ''; this.rLoaded.set(false); const req = ++this.rReq;
+    if (!date) return;
+    this.fd.slots(a.doctorId, date, a.duration).then(r => { if (req !== this.rReq) return; this.rFree.set(r.slots.filter(x => x.ok).map(x => x.time)); this.rBlock.set(r.dayBlock || r.slots.find(x => !x.ok)?.reason || ''); this.rLoaded.set(true); })
+      .catch(e => { if (req === this.rReq) { this.rFree.set([]); this.rBlock.set(apiMessage(e, 'Could not load slots')); this.rLoaded.set(true); } });
+  }
+  async doResch(a: Appointment) {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      const fresh = await this.fd.reschedule(a.id, this.rDate, this.rTime);
+      this.toast.ok(`Moved to ${fmtDate(this.rDate)} at ${this.rTime}.`); this.resch.set(false); this.date.set(this.rDate); this.sel.set(fresh ?? null);
+    } catch (e) { this.toast.err(apiMessage(e, 'Could not move the appointment')); }
+    finally { this.busy.set(false); }
+  }
+  async remind(a: Appointment) {
+    try { await this.fd.reminder(a.id); this.toast.ok(this.fd.live ? 'Reminder recorded. Messages are not sent from HospitOS yet.' : 'Reminder sent on WhatsApp (simulated)'); this.sel.set(this.store.db.appointments.find(x => x.id === a.id) ?? null); }
+    catch (e) { this.toast.err(apiMessage(e, 'Could not record the reminder')); }
+  }
   quickBook(docId: string, h: number) { this.router.navigate(['/appointments/new'], { queryParams: { doctor: docId, date: this.date(), time: `${String(h).padStart(2, '0')}:00` } }); }
-  remindAll() {
-    const t = this.store.day(1); const list = this.store.db.appointments.filter(a => a.date === t && !a.reminderSent && a.status !== 'Cancelled');
-    list.forEach(a => this.store.sendReminder(a.id)); this.toast.ok(list.length ? `${list.length} reminders sent for tomorrow (simulated WhatsApp)` : 'All reminders for tomorrow are already sent');
+  async remindAll() {
+    const t = this.store.day(1); const list = this.store.db.appointments.filter(a => a.date === t && !a.reminderSent && !['Cancelled', 'No-show'].includes(a.status));
+    let failed = 0;
+    for (const a of list) { try { await this.fd.reminder(a.id); } catch { failed++; } }
+    if (!list.length) { this.toast.ok('All reminders for tomorrow are already sent'); return; }
+    const sent = list.length - failed;
+    if (failed) this.toast.warn(`${sent} reminders recorded, ${failed} failed`);
+    else this.toast.ok(this.fd.live ? `${sent} reminders recorded for tomorrow` : `${sent} reminders sent for tomorrow (simulated WhatsApp)`);
   }
 }
