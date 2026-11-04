@@ -3,12 +3,14 @@ import { Role, RoleId } from '../models';
 import { NAV, ROLES, role } from '../roles';
 import { LIVE } from '../api/api-config';
 import { AuthService } from '../api/auth.service';
+import { StoreService } from './store.service';
 
 const KEY = 'hospit-hms:session';
 
 @Injectable({ providedIn: 'root' })
 export class SessionService {
   private auth = inject(AuthService);
+  private store = inject(StoreService);
   /** True when connected to a HospitOS server: real accounts, no demo role switching. */
   readonly live = LIVE;
   readonly roleId = signal<RoleId | null>(null);
@@ -48,7 +50,7 @@ export class SessionService {
     this.persist();
   }
   setBranch(b: string) { const allowed = this.allowedBranches(); if (allowed && !allowed.includes(b)) return; this.branchId.set(b); this.persist(); }
-  signOut() { this.roleId.set(null); this.auth.clear(); try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
+  signOut() { this.roleId.set(null); this.auth.clear(); this.store.clearLivePatients(); try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
   can(path: string) {
     const r = this.roleId(); if (!r) return false;
     for (const g of NAV) for (const i of g.items) if (path.startsWith(i.path)) return !i.roles || i.roles.includes(r);

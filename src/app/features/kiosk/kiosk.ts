@@ -145,6 +145,7 @@ export class KioskPage {
     return this.store.db.patients.find(p => p.id === v || p.id === 'HS-' + v || p.mobile.replace(/\D/g, '').endsWith(v.replace(/\D/g, '').slice(-10)));
   }
   find() {
+    if (LIVE) { this.toast.info('Self check-in is not connected yet. Please check in at the front desk.'); return; }
     const p = this.lookup(this.mode() === 'uhid' ? 'HS-' + this.entry() : this.entry());
     if (!p || this.entry().length < 7) { this.toast.err('No patient found. Check the number or register as a new patient.'); return; }
     this.found.set(p); this.step.set('confirm');

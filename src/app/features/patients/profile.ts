@@ -212,6 +212,8 @@ type Tab = 'overview' | 'visits' | 'rx' | 'diag' | 'billing' | 'docs' | 'timelin
   </cf-drawer>
   } @else if (loading()) {
     <cf-empty icon="activity" title="Opening record…"></cf-empty>
+  } @else if (loadError()) {
+    <cf-empty icon="user-x" title="Could not open this record" [text]="loadError()"><a class="btn" routerLink="/patients" style="margin-top:12px">Back to directory</a></cf-empty>
   } @else {
     <cf-empty icon="user-x" title="Patient not found" [text]="session.live ? 'The UHID may be wrong, or the patient belongs to a branch you cannot access.' : 'The UHID may be wrong or the record was removed in this demo.'"><a class="btn" routerLink="/patients" style="margin-top:12px">Back to directory</a></cf-empty>
   }`
@@ -223,14 +225,19 @@ export class ProfilePage {
   tab = signal<Tab>('overview'); edit = signal(false);
   form = { mobile: '', email: '', line: '', ephone: '' };
   private patientsApi = inject(PatientsApi);
-  loading = signal(false); saving = signal(false);
+  loading = signal(false); saving = signal(false); loadError = signal('');
+  private loadSeq = 0;
 
   constructor() {
     // Live mode: always open the record from the server. This read is recorded in the audit trail.
     effect(() => {
       const id = this.id(); if (!this.session.live || !id) return;
-      this.loading.set(true);
-      this.patientsApi.get(id).then(p => this.store.upsertPatient(p)).catch(() => { /* shown as not found */ }).finally(() => this.loading.set(false));
+      const seq = ++this.loadSeq;
+      this.loading.set(true); this.loadError.set('');
+      this.patientsApi.get(id)
+        .then(p => { if (seq === this.loadSeq) this.store.upsertPatient(p); })
+        .catch(e => { if (seq === this.loadSeq && (e as { status?: number }).status !== 404) this.loadError.set(apiMessage(e, 'Could not open this record')); })
+        .finally(() => { if (seq === this.loadSeq) this.loading.set(false); });
     });
   }
 
@@ -289,7 +296,10 @@ export class ProfilePage {
       try { this.store.upsertPatient(await this.patientsApi.update(p.id, toInput({ ...p, ...patch }))); }
       catch (e) {
         const err = e as { status?: number };
-        if (err.status === 409) { this.toast.err('Someone else changed this record. The latest version is now shown; make your change again.'); this.store.upsertPatient(await this.patientsApi.get(p.id)); }
+        if (err.status === 409) {
+          this.toast.err('Someone else changed this record. The latest version is now shown; make your change again.');
+          try { this.store.upsertPatient(await this.patientsApi.get(p.id)); } catch { this.toast.err('Could not reload the record. Refresh the page.'); }
+        }
         else this.toast.err(apiMessage(e, 'Could not save the changes'));
         return;
       } finally { this.saving.set(false); }

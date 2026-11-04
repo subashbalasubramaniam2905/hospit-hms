@@ -62,7 +62,7 @@ export class ShellComponent {
   }
   openNote(n: { id: string; link?: string }) { const x = this.store.db.inbox.find(i => i.id === n.id); if (x) { x.read = true; this.store.changed(); } if (n.link) this.go(n.link); }
   markAllRead() { this.store.db.inbox.forEach(n => n.read = true); this.store.changed(); }
-  signOut() { this.session.signOut(); this.store.clearLivePatients(); this.router.navigate(['/login']); }
+  signOut() { this.session.signOut(); this.router.navigate(['/login']); }
   branches = computed(() => { const a = this.session.allowedBranches(); return this.store.db.branches.filter(b => !a || a.includes(b.id)); });
   resetDemo() { this.store.reset(); this.toast.ok('Demo data reset to the original fictional records'); this.router.navigate(['/dashboard']); }
   quick(path: string, q?: Record<string, string>) { this.go(path, q); }

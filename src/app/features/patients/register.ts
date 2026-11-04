@@ -137,6 +137,7 @@ export class RegisterPage {
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
   session = inject(SessionService); private patientsApi = inject(PatientsApi);
   saving = signal(false);
+  private dupChecked = false;
   today = new Date().toISOString().slice(0, 10);
   states = ['Tamil Nadu', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana', 'Maharashtra', 'Delhi', 'Other'];
   commonAllergies = ['Penicillin', 'Sulfonamides', 'NSAIDs', 'Peanuts', 'Latex', 'Iodinated contrast'];
@@ -161,8 +162,8 @@ export class RegisterPage {
   async checkDup() {
     const v = this.f.getRawValue(); if (v.name.length < 3 && v.mobile.length < 10) return;
     if (this.session.live) {
-      try { this.dups.set(await this.patientsApi.duplicates(v.name, v.mobile, v.dob || undefined)); }
-      catch { this.dups.set([]); }
+      try { this.dups.set(await this.patientsApi.duplicates(v.name, v.mobile, v.dob || undefined)); this.dupChecked = true; }
+      catch { this.dups.set([]); this.dupChecked = false; }
     } else this.dups.set(this.store.findDuplicates(v.name, v.mobile, v.dob));
     this.dupAck.set(false);
   }
@@ -185,6 +186,7 @@ export class RegisterPage {
     this.submitted.set(true); this.f.markAllAsTouched();
     if (this.f.invalid) { this.toast.err('Some required fields are missing or invalid'); return; }
     if (!this.dupAck()) await this.checkDup();
+    if (this.session.live && !this.dupAck() && !this.dupChecked) { this.toast.err('Could not check for existing records. Check the connection and try again.'); return; }
     if (this.dups().length && !this.dupAck()) { this.toast.warn('Review the possible duplicate before saving'); return; }
     const v = this.f.getRawValue();
     const input: PatientInput = {
