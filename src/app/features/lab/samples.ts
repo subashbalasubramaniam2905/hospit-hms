@@ -5,6 +5,10 @@ import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportService } from '../../core/services/export.service';
 import { LabOrder } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { LabApi, LiveLabOrder } from '../../core/api/lab-api';
+import { LiveSync } from '../../core/api/live-sync';
+
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -42,6 +46,8 @@ import { LabOrder } from '../../core/models';
 })
 export class SamplesPage {
   store = inject(StoreService); toast = inject(ToastService); printer = inject(ExportService);
+  session = inject(SessionService); private api = inject(LabApi); private sync = inject(LiveSync); live = this.session.live;
+  constructor() { if (this.live) this.sync.loadLab().catch(() => this.toast.err('Could not load lab orders from the server')); }
   tab = signal<'collect' | 'receive'>('collect'); scan = signal(''); focus = signal(inject(ActivatedRoute).snapshot.queryParamMap.get('order') || '');
   toCollect = computed(() => { this.store.rev(); return this.store.db.labOrders.filter(o => o.status === 'Awaiting sample' || o.status === 'Ordered').sort((a, b) => this.rank(b) - this.rank(a)); });
   toReceive = computed(() => { this.store.rev(); return this.store.db.labOrders.filter(o => o.status === 'Sample collected'); });
@@ -50,9 +56,9 @@ export class SamplesPage {
   fasting(o: LabOrder) { return o.testIds.some(t => t === 'L02' || t === 'L05'); }
   tubeColor(s: string) { return /EDTA/.test(s) ? '#7c3aed' : /Urine/.test(s) ? '#b45309' : /Citrate/.test(s) ? '#2563eb' : /Fluoride/.test(s) ? '#64748b' : /Stool/.test(s) ? '#78350f' : '#dc2626'; }
   bars(id: string) { const out: { x: number; w: number }[] = []; let x = 4; for (const ch of id + id) { const c = ch.charCodeAt(0); const w = (c % 3) + 1; if (x + w > 196) break; out.push({ x, w }); x += w + ((c >> 2) % 3) + 1; } return out; }
-  collect(o: LabOrder) { const id = this.store.collectSample(o); this.toast.ok(`Sample ${id} collected and labelled`); }
-  receive(o: LabOrder) { this.store.setLabStatus(o, 'Processing'); this.store.log('Received', 'Lab sample', `${o.sampleId} accepted in lab`); this.toast.ok(`${o.sampleId} received. Processing started.`); }
-  reject(o: LabOrder) { o.status = 'Awaiting sample'; o.sampleId = undefined; o.comments = 'Sample rejected: haemolysed. Recollect.'; this.store.log('Rejected', 'Lab sample', `${o.id} haemolysed`, 'Sensitive'); this.store.changed(); this.toast.warn('Sample rejected as haemolysed. Moved back to collection.'); this.tab.set('collect'); }
+  collect(o: LabOrder) { if (this.live) { this.sync.labAction(() => this.api.collect(o.id), x => `Sample ${x.sampleId} collected and labelled`); return; } const id = this.store.collectSample(o); this.toast.ok(`Sample ${id} collected and labelled`); }
+  receive(o: LabOrder) { if (this.live) { this.sync.labAction(() => this.api.receive(o.id), x => `${x.sampleId} received. Processing started.`); return; } this.store.setLabStatus(o, 'Processing'); this.store.log('Received', 'Lab sample', `${o.sampleId} accepted in lab`); this.toast.ok(`${o.sampleId} received. Processing started.`); }
+  reject(o: LabOrder) { if (this.live) { this.sync.labAction(() => this.api.reject(o.id, 'Haemolysed'), () => 'Sample rejected as haemolysed. Moved back to collection.').then(() => this.tab.set('collect')); return; } o.status = 'Awaiting sample'; o.sampleId = undefined; o.comments = 'Sample rejected: haemolysed. Recollect.'; this.store.log('Rejected', 'Lab sample', `${o.id} haemolysed`, 'Sensitive'); this.store.changed(); this.toast.warn('Sample rejected as haemolysed. Moved back to collection.'); this.tab.set('collect'); }
   doScan() {
     const v = this.scan().trim().toUpperCase(); if (!v) return;
     const o = this.store.db.labOrders.find(x => x.sampleId === v || x.id === v);

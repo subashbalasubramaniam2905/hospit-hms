@@ -1,10 +1,14 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportService } from '../../core/services/export.service';
-import { Medicine } from '../../core/models';
+import { Medicine, StockMove } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { PharmacyApi, LiveMedicine } from '../../core/api/pharmacy-api';
+import { LiveSync } from '../../core/api/live-sync';
+import { apiMessage } from '../../core/api/auth.service';
 
 type Tab = 'stock' | 'expiry' | 'moves';
 
@@ -82,20 +86,40 @@ type Tab = 'stock' | 'expiry' | 'moves';
       }
       @if (mode() === 'transfer') {
         <div class="soft stack-s"><b>Transfer to branch</b>
-          <div class="form-grid"><div class="field"><label>To branch</label><select class="inp" [(ngModel)]="tr.branch">@for (b of store.db.branches; track b.id) { @if (b.id !== 'BR1') {<option [value]="b.id">{{ b.name }}</option>} }</select></div>
+          <div class="form-grid"><div class="field"><label>To branch</label><select class="inp" [(ngModel)]="tr.branch">@for (b of store.db.branches; track b.id) { @if (b.id !== session.branchId()) {<option [value]="b.id">{{ b.name }}</option>} }</select></div>
           <div class="field"><label>Quantity</label><input class="inp" type="number" min="1" [(ngModel)]="tr.qty"></div></div>
           <div class="row"><button class="btn sm" (click)="doTransfer(m)">Send transfer</button><button class="btn ghost sm" (click)="mode.set('')">Cancel</button></div></div>
       }
     }
     <div foot>@if (sel(); as m) {
       <button class="btn ghost" (click)="mode.set('adjust'); adj.batch = m.batches[0]?.batch || ''">Adjust</button>
-      <button class="btn ghost" (click)="mode.set('transfer'); tr.branch = 'BR2'">Transfer</button>
+      <button class="btn ghost" (click)="mode.set('transfer'); tr.branch = otherBranch()">Transfer</button>
       <button class="btn" (click)="reorder(m)"><lucide-icon name="truck" [size]="16"></lucide-icon>Reorder</button>
     }</div>
   </cf-drawer>`
 })
 export class PharmacyInventoryPage {
-  store = inject(StoreService); toast = inject(ToastService); exp = inject(ExportService); router = inject(Router);
+  store = inject(StoreService); toast = inject(ToastService); exp = inject(ExportService); router = inject(Router); session = inject(SessionService);
+  private api = inject(PharmacyApi); private sync = inject(LiveSync);
+  live = this.session.live; liveMoves = signal<StockMove[]>([]);
+  constructor() {
+    // Live mode: stock and movements come from the server for the selected branch.
+    if (this.live) effect(() => { const b = this.session.branchId(); untracked(() => this.reload(b)); });
+  }
+  async reload(b = this.session.branchId()) {
+    try {
+      const [, moves] = await Promise.all([this.sync.loadPharmacy(b), this.api.moves(b)]);
+      this.liveMoves.set(moves.map(m => ({ id: m.id, date: m.at.slice(0, 16).replace('T', ' '), itemId: m.itemId, name: m.name, kind: m.kind, qty: m.qty, ref: m.ref, by: m.by, note: [m.batch, m.note].filter(Boolean).join(' · ') })));
+      const s = this.sel(); if (s) this.sel.set(this.store.med(s.id) ?? null);
+    } catch (e) { this.toast.err(apiMessage(e, 'Could not load pharmacy stock')); }
+  }
+  otherBranch() { return this.store.db.branches.find(b => b.id !== this.session.branchId())?.id ?? ''; }
+  /** Live mode: runs a stock change on the server, then reloads stock and movements. */
+  private async run(call: () => Promise<LiveMedicine>, ok: string) {
+    try { await call(); this.toast.ok(ok); this.mode.set(''); await this.reload(); }
+    catch (e) { this.toast.err(apiMessage(e, 'Could not update stock')); }
+  }
+  private batchId(m: Medicine, batch: string) { return (m as LiveMedicine).batches.find(b => b.batch === batch)?.id ?? ''; }
   tab = signal<Tab>('stock'); q = signal(''); filter = signal('All'); cat = signal(''); sel = signal<Medicine | null>(null); mode = signal('');
   soon = this.store.day(90); adj = { batch: '', delta: 0, note: 'Physical count correction' }; tr = { branch: 'BR2', qty: 10 };
   cols = [
@@ -113,7 +137,7 @@ export class PharmacyInventoryPage {
   batches = computed(() => this.meds().reduce((t, m) => t + m.batches.filter(b => b.qty > 0).length, 0));
   value = computed(() => this.meds().reduce((t, m) => t + m.batches.reduce((s, b) => s + b.qty * b.cost, 0), 0));
   expiring = computed(() => { const today = this.store.today(); return this.meds().flatMap(m => m.batches.filter(b => b.qty > 0 && b.expiry <= this.soon).map(b => ({ m, b, days: Math.round((new Date(b.expiry).getTime() - new Date(today).getTime()) / 864e5) }))).sort((a, b) => a.days - b.days); });
-  moves = computed(() => { this.store.rev(); return this.store.db.stockMoves.filter(s => this.store.med(s.itemId)); });
+  moves = computed(() => { this.store.rev(); return this.live ? this.liveMoves() : this.store.db.stockMoves.filter(s => this.store.med(s.itemId)); });
   rows = computed(() => {
     const q = this.q().toLowerCase(), f = this.filter();
     return this.meds().filter(m => (!q || (m.generic + m.brand + m.rack).toLowerCase().includes(q)) && (!this.cat() || m.category === this.cat())
@@ -123,8 +147,11 @@ export class PharmacyInventoryPage {
   fefoIdx(m: Medicine) { const n = this.store.fefo(m.id, 1)[0]?.batch; return m.batches.findIndex(b => b.batch === n); }
   state(m: Medicine) { const s = this.store.stock(m); return !s ? 'Out of stock' : s <= m.reorder ? 'Low stock' : this.nearest(m) <= this.soon ? 'Expiring soon' : 'In stock'; }
   tone(m: Medicine) { return ({ 'Out of stock': 'r', 'Low stock': 'p', 'Expiring soon': 'a', 'In stock': 'ok' } as Record<string, string>)[this.state(m)]; }
-  doAdjust(m: Medicine) { if (!this.adj.delta) { this.toast.err('Enter a quantity to add or remove'); return; } this.store.adjustStock(m.id, this.adj.batch, +this.adj.delta, this.adj.note); this.toast.ok(`Stock adjusted by ${this.adj.delta}. Audit entry recorded.`); this.mode.set(''); this.adj.delta = 0; }
+  doAdjust(m: Medicine) { if (!this.adj.delta) { this.toast.err('Enter a quantity to add or remove'); return; }
+    if (this.live) { const d = +this.adj.delta; this.run(() => this.api.adjust(this.batchId(m, this.adj.batch), d, this.adj.note), `Stock adjusted by ${d}. Audit entry recorded.`).then(() => this.adj.delta = 0); return; }
+    this.store.adjustStock(m.id, this.adj.batch, +this.adj.delta, this.adj.note); this.toast.ok(`Stock adjusted by ${this.adj.delta}. Audit entry recorded.`); this.mode.set(''); this.adj.delta = 0; }
   doTransfer(m: Medicine) {
+    if (this.live) { const to = this.tr.branch, qty = +this.tr.qty; this.run(() => this.api.transfer(m.id, this.session.branchId(), to, qty), `${qty} units sent to ${this.store.db.branches.find(b => b.id === to)?.name ?? to}`); return; }
     const plan = this.store.fefo(m.id, this.tr.qty); const got = plan.reduce((t, p) => t + p.take, 0); if (!got) { this.toast.err('No stock to transfer'); return; }
     plan.forEach(p => { m.batches.find(b => b.batch === p.batch)!.qty -= p.take; });
     const br = this.store.db.branches.find(b => b.id === this.tr.branch)?.name;
@@ -134,12 +161,15 @@ export class PharmacyInventoryPage {
   reorder(m: Medicine) { this.makePO([m]); }
   reorderLow() { const l = this.low(); if (!l.length) { this.toast.info('Nothing below reorder level'); return; } this.makePO(l); }
   private makePO(list: Medicine[]) {
+    if (this.live) { this.toast.info('Purchase orders are not connected to the server yet. Raise this order outside HospitOS for now.'); return; }
     const bySup = new Map<string, Medicine[]>(); list.forEach(m => { const s = m.batches[0]?.supplierId || this.store.db.suppliers[0].id; bySup.set(s, [...(bySup.get(s) || []), m]); });
     bySup.forEach((ms, sup) => this.store.db.purchaseOrders.unshift({ id: 'PO-' + this.store.uid('').slice(-6), supplierId: sup, date: this.store.today(), kind: 'Pharmacy', items: ms.map(m => ({ itemId: m.id, name: `${m.brand} ${m.strength}`, qty: Math.max(m.reorder * 3 - this.store.stock(m), m.reorder), cost: +(m.price * 0.7).toFixed(2) })), status: 'Requested', requestedBy: 'Farzana Ali', expected: this.store.day(4) }));
     this.store.log('Created', 'Purchase order', `${bySup.size} PO(s) for ${list.length} medicines`); this.store.changed();
     this.toast.ok(`${bySup.size} purchase order(s) raised for approval`, { label: 'View', run: () => this.router.navigate(['/procurement']) });
     this.sel.set(null);
   }
-  returnBatch(m: Medicine, batch: string, qty: number) { this.store.adjustStock(m.id, batch, -qty, 'Returned to supplier (near expiry)'); this.toast.ok(`${batch} returned to supplier. Credit note expected (simulated).`); }
+  returnBatch(m: Medicine, batch: string, qty: number) {
+    if (this.live) { this.run(() => this.api.adjust(this.batchId(m, batch), -qty, 'Returned to supplier (near expiry)', true), `${batch} returned to supplier`); return; }
+    this.store.adjustStock(m.id, batch, -qty, 'Returned to supplier (near expiry)'); this.toast.ok(`${batch} returned to supplier. Credit note expected (simulated).`); }
   exportCsv() { this.exp.csv('pharmacy-stock', this.rows().map(m => ({ Generic: m.generic, Brand: m.brand, Strength: m.strength, Category: m.category, Rack: m.rack, Stock: this.store.stock(m), Reorder: m.reorder, NearestExpiry: this.nearest(m), MRP: m.price }))); }
 }
