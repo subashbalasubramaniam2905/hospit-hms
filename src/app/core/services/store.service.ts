@@ -5,7 +5,7 @@ import {
   JOURNEY, LabOrder, LabStatus, Medicine, NotificationMsg, Patient, PayMode, Prescription, PurchaseOrder, QueueEntry, Surgery
 } from '../models';
 
-const KEY = 'hospit-hms:v5';
+const KEY = 'hospit-hms:v6';
 
 export interface DuplicateMatch { patient: Patient; score: number; reasons: string[]; }
 export interface ConflictResult { ok: boolean; reason?: string; }

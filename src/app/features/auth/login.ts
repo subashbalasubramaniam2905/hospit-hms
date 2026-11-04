@@ -10,7 +10,7 @@ import { ToastService } from '../../core/services/toast.service';
   template: `
   <div class="wrap">
     <section class="hero">
-      <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="2" width="8" height="28" rx="4" fill="#fff"/><rect x="2" y="12" width="28" height="8" rx="4" fill="var(--amber)"/><circle cx="16" cy="16" r="4" fill="var(--hero)"/></svg>Hospit HMS</div>
+      <div class="brand"><app-logo [reverse]="true"></app-logo></div>
       <div class="pitch">
         <h1>One place for every patient, from the front desk to discharge.</h1>
         <p>Registration, appointments, consultations, pharmacy, lab, billing and inpatient care, connected for clinics and hospitals of any size.</p>

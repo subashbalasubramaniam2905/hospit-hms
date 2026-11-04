@@ -7,7 +7,7 @@ import { ExportService } from '../../core/services/export.service';
 import { Channel, InAppNote, NotificationMsg } from '../../core/models';
 
 const TEMPLATES: { type: NotificationMsg['type']; text: string }[] = [
-  { type: 'Appointment reminder', text: 'Reminder: your appointment at Hospit is tomorrow. Reply 1 to confirm or 2 to reschedule.' },
+  { type: 'Appointment reminder', text: 'Reminder: your appointment at HospitOS is tomorrow. Reply 1 to confirm or 2 to reschedule.' },
   { type: 'Follow-up reminder', text: 'Your follow-up visit is due this week. Book on the patient app or call +91 4252 221000.' },
   { type: 'Payment reminder', text: 'An amount is due on your recent invoice. Pay by UPI on the patient app.' },
   { type: 'Lab report ready', text: 'Your lab report is ready. View it securely in the patient app.' },

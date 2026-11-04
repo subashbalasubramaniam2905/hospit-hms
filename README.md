@@ -1,6 +1,6 @@
-# Hospit HMS (prototype)
+# HospitOS (prototype)
 
-Hospit Multispeciality Hospital, Udumalpet, Tamil Nadu (fictional demo setting).
+HospitOS Multispeciality Hospital, Udumalpet, Tamil Nadu (fictional demo setting).
 
 An interactive, front-end-only prototype of a hospital management system, built for design and workflow review.
 

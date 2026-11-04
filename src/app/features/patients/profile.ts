@@ -254,7 +254,7 @@ export class ProfilePage {
     this.imaging().forEach(o => ev.push({ date: o.date, title: `${o.modality}: ${o.study}`, sub: o.status, color: 'var(--pink)' }));
     this.rx().forEach(r => ev.push({ date: r.date, title: `Prescription (${r.items.length} medicines)`, sub: r.status, color: 'var(--violet)' }));
     this.invoices().forEach(i => ev.push({ date: i.date, title: `Invoice ${i.id}`, sub: `${i.status}`, color: 'var(--amber)' }));
-    const p = this.p(); if (p) ev.push({ date: p.registered, title: 'Registered at Hospit', sub: `UHID ${p.id}`, color: 'var(--green)' });
+    const p = this.p(); if (p) ev.push({ date: p.registered, title: 'Registered at HospitOS', sub: `UHID ${p.id}`, color: 'var(--green)' });
     return ev.sort((a, b) => b.date.localeCompare(a.date));
   });
 

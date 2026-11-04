@@ -1,4 +1,4 @@
-/* Fictional seed data for the Hospit prototype. Deterministic so screens stay consistent.
+/* Fictional seed data for the HospitOS prototype. Deterministic so screens stay consistent.
    No real patients, staff, phone numbers or identifiers are used. */
 import {
   Admission, Alert, Appointment, ApptStatus, Asset, AuditLog, Bed, Branch, Claim, Consultation, Department, Doctor, ERCase,
@@ -35,9 +35,9 @@ export function buildSeed(): SeedData {
   const T = (o: number) => isoDay(o);
 
   const branches: Branch[] = [
-    { id: 'BR1', name: 'Hospit Udumalpet', city: 'Udumalpet', beds: 20, revenueMonth: 9640000, visitsMonth: 3920, occupancy: 0, doctors: 10, doctorsAvailable: 8, utilisation: { OPD: 82, OT: 71, Lab: 77, Radiology: 64 } },
-    { id: 'BR2', name: 'Hospit Pollachi', city: 'Pollachi', beds: 45, revenueMonth: 12850000, visitsMonth: 4610, occupancy: 78, doctors: 16, doctorsAvailable: 13, utilisation: { OPD: 88, OT: 79, Lab: 81, Radiology: 70 } },
-    { id: 'BR3', name: 'Hospit Palani Clinic', city: 'Palani', beds: 0, revenueMonth: 2310000, visitsMonth: 1480, occupancy: 0, doctors: 4, doctorsAvailable: 3, utilisation: { OPD: 69, OT: 0, Lab: 58, Radiology: 0 } },
+    { id: 'BR1', name: 'HospitOS Udumalpet', city: 'Udumalpet', beds: 20, revenueMonth: 9640000, visitsMonth: 3920, occupancy: 0, doctors: 10, doctorsAvailable: 8, utilisation: { OPD: 82, OT: 71, Lab: 77, Radiology: 64 } },
+    { id: 'BR2', name: 'HospitOS Pollachi', city: 'Pollachi', beds: 45, revenueMonth: 12850000, visitsMonth: 4610, occupancy: 78, doctors: 16, doctorsAvailable: 13, utilisation: { OPD: 88, OT: 79, Lab: 81, Radiology: 70 } },
+    { id: 'BR3', name: 'HospitOS Palani Clinic', city: 'Palani', beds: 0, revenueMonth: 2310000, visitsMonth: 1480, occupancy: 0, doctors: 4, doctorsAvailable: 3, utilisation: { OPD: 69, OT: 0, Lab: 58, Radiology: 0 } },
   ];
 
   const departments: Department[] = [
@@ -477,7 +477,7 @@ export function buildSeed(): SeedData {
     ['email', 'Email (SMTP)', 'Messaging', 'Send reports, invoices and reminders by email.', true, 'Connected', [['host', 'SMTP host', 'smtp.demo.local'], ['port', 'Port', '587'], ['from', 'From address', 'no-reply@hospit.demo']]],
     ['wa', 'WhatsApp Business', 'Messaging', 'Approved templates for reminders, reports and discharge messages.', true, 'Error', [['waba', 'WABA ID', 'WABA-DEMO-8812'], ['phone', 'Phone number ID', 'PN-DEMO-1102'], ['token', 'Access token', '••••••••', true]]],
     ['ins', 'Insurance / TPA portal', 'Insurance', 'Submit pre-authorisations and track claims electronically.', false, 'Not configured', [['portal', 'Portal', 'NHCX sandbox'], ['participant', 'Participant code', '']]],
-    ['acct', 'Accounting software', 'Finance', 'Push daily collections and invoices to the accounts system.', false, 'Disabled', [['system', 'System', 'Tally Prime'], ['company', 'Company name', 'Hospit Healthcare Pvt Ltd (demo)']]],
+    ['acct', 'Accounting software', 'Finance', 'Push daily collections and invoices to the accounts system.', false, 'Disabled', [['system', 'System', 'Tally Prime'], ['company', 'Company name', 'HospitOS Healthcare Pvt Ltd (demo)']]],
     ['bio', 'Biometric attendance', 'Devices', 'Sync staff punches from fingerprint and face devices.', true, 'Connected', [['device', 'Device IP', '192.168.10.80'], ['sync', 'Sync every', '15 minutes']]],
     ['barcode', 'Barcode scanners', 'Devices', 'Scan patient wristbands, sample tubes and medicine strips.', true, 'Connected', [['mode', 'Input mode', 'Keyboard wedge'], ['prefix', 'Sample prefix', 'SMP']]],
     ['printer', 'Printers', 'Devices', 'Label, wristband, receipt and A4 report printers.', true, 'Connected', [['label', 'Label printer', 'Zebra ZD220 (Lab)'], ['receipt', 'Receipt printer', 'Thermal 80 mm (Front desk)'], ['a4', 'Report printer', 'HP LaserJet (Records)']]],
@@ -502,7 +502,7 @@ export function buildSeed(): SeedData {
   ];
 
   const config: HospitalConfig = {
-    name: 'Hospit Multispeciality Hospital', legalName: 'Hospit Healthcare Pvt Ltd (demo)', gstin: '33AAACH0000A1Z5 (demo)', phone: '+91 4252 221000', email: 'hello@hospit.demo', address: 'Palani Road, Udumalpet, Tiruppur district, Tamil Nadu 642126', registration: 'TN-CE-DEMO-2024-0091',
+    name: 'HospitOS Multispeciality Hospital', legalName: 'HospitOS Healthcare Pvt Ltd (demo)', gstin: '33AAACH0000A1Z5 (demo)', phone: '+91 4252 221000', email: 'hello@hospit.demo', address: 'Palani Road, Udumalpet, Tiruppur district, Tamil Nadu 642126', registration: 'TN-CE-DEMO-2024-0091',
     workingHours: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => ({ day: d, open: '08:00', close: d === 'Sun' ? '13:00' : '20:00', closed: false })),
     apptRules: { slotMin: 15, maxAdvanceDays: 60, allowOverbook: false, noShowAfterMin: 30, reminderHours: 24 },
     queueRules: { tokenPrefixByDept: true, delayAlertMin: 25, emergencyJumpsQueue: true, seniorPriority: true },

@@ -34,7 +34,7 @@ import { Branch } from '../../core/models';
     </div>
     <div class="card">
       <div class="card-h"><h3>Side by side</h3></div>
-      <div class="tbl"><table class="t"><thead><tr><th>Measure</th>@for (b of list(); track b.id) {<th class="num">{{ b.name.replace('Hospit ', '') }}</th>}</tr></thead><tbody>
+      <div class="tbl"><table class="t"><thead><tr><th>Measure</th>@for (b of list(); track b.id) {<th class="num">{{ b.name.replace('HospitOS ', '') }}</th>}</tr></thead><tbody>
         @for (m of measures; track m.k) {<tr><td>{{ m.k }}</td>@for (b of list(); track b.id) {<td class="num">{{ m.f(b) }}</td>}</tr>}
       </tbody></table></div>
     </div>
@@ -43,7 +43,7 @@ import { Branch } from '../../core/models';
 export class BranchesPage {
   store = inject(StoreService); toast = inject(ToastService); session = inject(SessionService);
   list = computed<Branch[]>(() => { this.store.rev(); const s = this.store.db; return s.branches.map(b => b.id === 'BR1' ? { ...b, occupancy: Math.round(s.beds.filter(x => x.status === 'Occupied').length / Math.max(1, s.beds.length) * 100), beds: s.beds.length, doctorsAvailable: s.doctors.filter(d => d.status !== 'On leave').length, doctors: s.doctors.length } : b); });
-  labels = computed(() => this.list().map(b => b.name.replace('Hospit ', '')));
+  labels = computed(() => this.list().map(b => b.name.replace('HospitOS ', '')));
   revs = computed(() => this.list().map(b => b.revenueMonth)); visits = computed(() => this.list().map(b => b.visitsMonth));
   totalRev = computed(() => this.revs().reduce((a, b) => a + b, 0)); totalVisits = computed(() => this.visits().reduce((a, b) => a + b, 0));
   totalBeds = computed(() => this.list().reduce((a, b) => a + b.beds, 0)); totalDocs = computed(() => this.list().reduce((a, b) => a + b.doctors, 0)); onDuty = computed(() => this.list().reduce((a, b) => a + b.doctorsAvailable, 0));

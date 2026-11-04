@@ -12,7 +12,7 @@ const TONE: Record<RoleId, string> = { 'super-admin': 'v', admin: 'g', doctor: '
   template: `
   <div class="wrap">
     <header>
-      <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="2" width="8" height="28" rx="4" fill="var(--pri)"/><rect x="2" y="12" width="28" height="8" rx="4" fill="var(--amber)"/><circle cx="16" cy="16" r="4" fill="var(--card)"/></svg>Hospit HMS</div>
+      <div class="brand"><app-logo></app-logo></div>
       <span class="demo-tag">Role selection is a demo feature</span>
     </header>
     <div class="intro"><h1>Choose how you want to explore</h1><p class="muted">Each role sees its own dashboard, menu and actions. You can switch roles at any time from the account menu.</p></div>
