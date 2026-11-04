@@ -37,7 +37,11 @@ class JdbcDirectory implements Directory {
 
     @Override
     public Optional<String> patientName(String patientId) {
-        return db.sql("select name from patient where id = :id").param("id", patientId).query(String.class).optional();
+        // Same rule as the patient API: staff only see patients registered in their branches.
+        CurrentUser u = CurrentUser.get();
+        return db.sql("select name, branch_id from patient where id = :id").param("id", patientId)
+                .query((rs, i) -> u.canSee(rs.getString("branch_id")) ? rs.getString("name") : null).optional()
+                .filter(n -> n != null);
     }
 
     @Override

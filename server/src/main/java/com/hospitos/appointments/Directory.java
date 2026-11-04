@@ -15,6 +15,7 @@ public interface Directory {
 
     Optional<DoctorInfo> doctor(String doctorId);
 
+    /** The patient's name, or empty when there is no such patient in the signed-in user's branches. */
     Optional<String> patientName(String patientId);
 
     /** Whether the signed-in user works in this branch. */

@@ -291,6 +291,8 @@ class AppointmentsQueueTest {
         mvc.perform(get("/api/appointments?from=2026-11-01&to=2026-11-30").header("Authorization", desk2)).andExpect(jsonPath("$.length()").value(0));
         mvc.perform(get("/api/appointments?from=2026-11-01&to=2026-11-30&branch=BR1").header("Authorization", desk2)).andExpect(status().isForbidden());
         book(desk2, "HS-26-00004", "D01", "2026-11-05", "11:00", 15).andExpect(status().isNotFound());
+        // A patient registered in another branch can't be booked from here.
+        book(desk, "HS-26-00004", "D01", "2026-11-05", "11:00", 15).andExpect(status().isNotFound());
         setStatus(a, "Cancelled", desk2).andExpect(status().isNotFound());
         mvc.perform(get("/api/appointments?from=2026-11-01&to=2026-11-30").header("Authorization", hr)).andExpect(status().isForbidden());
         mvc.perform(get("/api/queue").header("Authorization", hr)).andExpect(status().isForbidden());
