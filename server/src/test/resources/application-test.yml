@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: ${TEST_DATABASE_URL:jdbc:postgresql://localhost:5432/hospit_test}
+  flyway:
+    clean-disabled: false
+hospitos:
+  bootstrap-admin:
+    email: admin@test.local
+    password: AdminPass123
+    name: Test Admin

@@ -1,0 +1,25 @@
+spring:
+  application.name: hospitos-server
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/hospit}
+    username: ${DATABASE_USER:hospit}
+    password: ${DATABASE_PASSWORD:hospit}
+  flyway:
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+server:
+  port: ${PORT:8080}
+  error.include-message: always
+management:
+  endpoints.web.exposure.include: health
+hospitos:
+  # Must be at least 32 characters. Set JWT_SECRET in every real environment.
+  jwt-secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+  token-hours: ${TOKEN_HOURS:8}
+  cors-origins: ${CORS_ORIGINS:http://localhost:4200}
+  # Creates the first super administrator when no accounts exist yet.
+  bootstrap-admin:
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+    name: ${ADMIN_NAME:Super Admin}
