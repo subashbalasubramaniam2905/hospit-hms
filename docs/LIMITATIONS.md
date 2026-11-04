@@ -1,6 +1,6 @@
 # Known prototype limitations
 
-Hospit HMS is a review prototype. It is **not production-ready** and must not be used with real patients.
+HospitOS is a review prototype. It is **not production-ready** and must not be used with real patients.
 
 ## Data and storage
 - All data is fictional and generated in the browser (`core/data/seed.ts`).

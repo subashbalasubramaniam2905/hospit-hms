@@ -1,4 +1,4 @@
-/* Hospit HMS prototype — domain models. All data is fictional. */
+/* HospitOS prototype — domain models. All data is fictional. */
 
 export type RoleId =
   | 'super-admin' | 'admin' | 'doctor' | 'nurse' | 'receptionist' | 'pharmacist'

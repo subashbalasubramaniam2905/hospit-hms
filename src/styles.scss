@@ -1,7 +1,7 @@
 @use '@angular/material' as mat;
 
 /* ==========================================================================
-   Hospit design tokens — Direction D ("friendly clinic") with B/C patterns
+   HospitOS design tokens — Direction D ("friendly clinic") with B/C patterns
    Light values on :root, dark values on html.dark
    ========================================================================== */
 :root {
@@ -70,7 +70,7 @@ html {
     density: 0,
   ));
 }
-/* Map Material system tokens to Hospit tokens so Material components match */
+/* Map Material system tokens to HospitOS tokens so Material components match */
 html, html.dark {
   --mat-sys-primary: var(--pri);
   --mat-sys-on-primary: #fff;

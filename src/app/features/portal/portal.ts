@@ -30,7 +30,7 @@ const PATIENT = 'HS-23-01041';
     @media (max-width:760px){ .hide-sm { display:none } .quick { grid-template-columns:repeat(2,minmax(0,1fr)) } .nav { position:fixed; bottom:0; left:0; right:0; border-radius:0; z-index:30; padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px)) } .nav button { flex-direction:column; font-size:11px; gap:2px; padding:6px 4px } }
   `],
   template: `
-  <header class="top"><div class="brand"><i>+</i>Hospit <span class="muted small hide-sm" style="font-weight:600">Patient portal</span></div><span class="spacer"></span>
+  <header class="top"><div class="brand"><app-logo></app-logo> <span class="muted small hide-sm" style="font-weight:600">Patient portal</span></div><span class="spacer"></span>
     <span class="demo-tag">Demo</span>
     <button class="iconbtn" (click)="theme.toggle()" aria-label="Toggle theme"><lucide-icon [name]="theme.dark() ? 'sun' : 'moon'" [size]="17"></lucide-icon></button>
     @if (signedIn()) { <button class="btn ghost sm" (click)="out()">Sign out</button> } @else { <a class="btn ghost sm" routerLink="/login">Staff sign in</a> }</header>
@@ -38,7 +38,7 @@ const PATIENT = 'HS-23-01041';
   @if (!signedIn()) {
     <div class="login card stack">
       <h1 style="font-size:22px">Sign in to your health record</h1>
-      <p class="muted">Use the mobile number registered at Hospit. This prototype signs you in as the fictional patient Lakshmi Narayan.</p>
+      <p class="muted">Use the mobile number registered at HospitOS. This prototype signs you in as the fictional patient Lakshmi Narayan.</p>
       @if (step() === 1) {
         <div class="field"><label>Mobile number</label><input class="inp" [(ngModel)]="mobile" placeholder="+91 99160 825672"></div>
         <button class="btn" (click)="sendOtp()">Send OTP</button>

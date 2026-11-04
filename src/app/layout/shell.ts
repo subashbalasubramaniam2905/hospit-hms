@@ -10,11 +10,11 @@ import { ThemeService } from '../core/services/theme.service';
 import { StoreService } from '../core/services/store.service';
 import { ToastService } from '../core/services/toast.service';
 import { RoleId } from '../core/models';
-import { AvatarComponent } from '../shared';
+import { AvatarComponent, LogoComponent } from '../shared';
 
 @Component({
   selector: 'app-shell', standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule, LucideAngularModule, MatMenuModule, MatTooltipModule, AvatarComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule, LucideAngularModule, MatMenuModule, MatTooltipModule, AvatarComponent, LogoComponent],
   templateUrl: './shell.html', styleUrl: './shell.scss'
 })
 export class ShellComponent {

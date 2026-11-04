@@ -92,7 +92,7 @@ export class UsersPage {
   count(s: UserAccount['status']) { return this.all().filter(u => u.status === s).length; }
   mfaPct() { const a = this.all(); return Math.round(a.filter(u => u.mfa).length / Math.max(1, a.length) * 100); }
   roleName(id: RoleId) { return ROLES.find(r => r.id === id)?.name || id; }
-  branchNames(ids: string[]) { return ids.map(id => this.store.db.branches.find(b => b.id === id)?.name.replace('Hospit ', '') || id).join(', '); }
+  branchNames(ids: string[]) { return ids.map(id => this.store.db.branches.find(b => b.id === id)?.name.replace('HospitOS ', '') || id).join(', '); }
   usersIn(id: RoleId) { return this.all().filter(u => u.roleId === id).length; }
   screens(id: RoleId) { this.bump(); return NAV.flatMap(g => g.items).filter(i => !i.roles || i.roles.includes(id)).length; }
   level(path: string, r: RoleId): Level {

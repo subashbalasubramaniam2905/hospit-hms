@@ -1,8 +1,7 @@
 <div class="app" [class.side-open]="sideOpen()">
   <aside class="side" aria-label="Main navigation">
     <a class="brand" routerLink="/dashboard">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="2" width="8" height="28" rx="4" fill="var(--pri)"/><rect x="2" y="12" width="28" height="8" rx="4" fill="var(--amber)"/><circle cx="16" cy="16" r="4" fill="var(--card)"/></svg>
-      <span>Hospit <small>HMS</small></span>
+      <app-logo></app-logo>
     </a>
     <nav>
       @for (g of session.nav(); track g.label) {
@@ -58,7 +57,7 @@
         <button mat-menu-item (click)="quick('/ipd/admit')"><lucide-icon name="bed-double" [size]="16"></lucide-icon> Admit patient</button>
         <button mat-menu-item (click)="quick('/pharmacy/dispense')"><lucide-icon name="pill" [size]="16"></lucide-icon> Dispense medication</button>
       </mat-menu>
-      <button class="chipbtn hide-s" [matMenuTriggerFor]="branchMenu" matTooltip="Switch branch"><lucide-icon name="building-2" [size]="15"></lucide-icon><span>{{ branch()?.name?.replace('Hospit ', '') }}</span><lucide-icon name="chevron-down" [size]="13"></lucide-icon></button>
+      <button class="chipbtn hide-s" [matMenuTriggerFor]="branchMenu" matTooltip="Switch branch"><lucide-icon name="building-2" [size]="15"></lucide-icon><span>{{ branch()?.name?.replace('HospitOS ', '') }}</span><lucide-icon name="chevron-down" [size]="13"></lucide-icon></button>
       <mat-menu #branchMenu="matMenu">
         @for (b of store.db.branches; track b.id) { <button mat-menu-item (click)="session.setBranch(b.id); toast.ok('Switched to ' + b.name + ' (demo)')">{{ b.name }} · {{ b.city }}</button> }
       </mat-menu>

@@ -70,7 +70,7 @@ export class RxBuilderPage {
   sign() {
     const rx = this.rx(); if (this.override.trim()) { rx.notes = [rx.notes, `Override: ${this.override}`].filter(Boolean).join(' · '); this.store.log('Override', 'Safety alert', this.crit().map(a => a.title).join('; '), 'Flagged'); }
     this.store.saveRx(rx, 'Sent to pharmacy');
-    this.store.notify('In-app', 'Prescription', rx.patientId, `Your prescription ${rx.id} has been sent to the Hospit pharmacy.`);
+    this.store.notify('In-app', 'Prescription', rx.patientId, `Your prescription ${rx.id} has been sent to the HospitOS pharmacy.`);
     this.store.inboxPush('New prescription for dispensing', `${this.store.pname(rx.patientId)} · ${rx.items.length} items`, 'pill', 'v', '/pharmacy/dispense');
     this.toast.ok(`Signed and sent to the pharmacy queue (${rx.items.length} items)`); this.router.navigate(['/prescriptions']);
   }
