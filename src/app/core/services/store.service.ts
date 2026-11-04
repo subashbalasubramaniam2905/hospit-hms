@@ -1,4 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { LIVE } from '../api/api-config';
+import { PatientsApi } from '../api/patients-api';
+import { AuthService } from '../api/auth.service';
 import { buildSeed, isoDay, pad, SeedData, TODAY } from '../data/seed';
 import {
   Admission, Alert, Appointment, ApptStatus, Bed, Channel, Claim, ClaimStatus, Consultation, ERCase, ImagingOrder, ImgStatus, Invoice, InvoiceItem,
@@ -18,9 +21,55 @@ export class StoreService {
   readonly rev = signal(0);
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private patientsApi = inject(PatientsApi);
+  private auth = inject(AuthService);
+  /** Live mode: false until the patient list has been loaded from the server. */
+  readonly patientsReady = signal(!LIVE);
+
   constructor() {
     this.db = this.load();
+    if (LIVE) this.dropDemoPatientData();
   }
+
+  /**
+   * Live mode: patients come only from the server. Fictional patients and every sample record that points at
+   * them (visits, orders, bills, admissions...) are removed, so screens never mix real and invented people.
+   * Modules show empty lists until they are connected to the server.
+   */
+  private dropDemoPatientData() {
+    const d = this.db;
+    d.patients = []; d.appointments = []; d.queue = []; d.consultations = []; d.prescriptions = []; d.labOrders = []; d.imaging = [];
+    d.invoices = []; d.claims = []; d.admissions = []; d.surgeries = []; d.erCases = []; d.notifications = []; d.followUps = [];
+    d.feedback = []; d.alerts = []; d.audit = []; d.inbox = [];
+    for (const b of d.beds) if (b.admissionId) { b.admissionId = undefined; b.status = 'Available'; }
+  }
+
+  /** Live mode: loads the most recent patients this user may see. Older ones are fetched on search. */
+  async syncPatients() {
+    if (!LIVE) return;
+    const list = await this.patientsApi.search('', 500);
+    this.db.patients = list.map(p => ({ ...p, documents: this.patient(p.id)?.documents ?? [] }));
+    this.patientsReady.set(true);
+    this.changed();
+  }
+  /** Live mode: asks the server for matches (covers patients beyond the first page) and keeps them in memory. */
+  async searchPatients(q: string) {
+    if (!LIVE || q.trim().length < 2) return;
+    for (const p of await this.patientsApi.search(q.trim(), 100)) {
+      if (!this.patient(p.id)) this.db.patients.push({ ...p, documents: [] });
+    }
+    this.changed();
+  }
+  /** Live mode: stores a record returned by the server, keeping local-only extras such as documents. */
+  upsertPatient(p: Patient) {
+    const i = this.db.patients.findIndex(x => x.id === p.id);
+    const merged = { ...p, documents: i >= 0 ? this.db.patients[i].documents : p.documents ?? [] };
+    if (i >= 0) this.db.patients[i] = merged; else this.db.patients.unshift(merged);
+    this.changed();
+    return merged;
+  }
+  /** Live mode: forgets everything loaded for the previous user (called on sign-out and session expiry). */
+  clearLivePatients() { if (LIVE) { this.db = buildSeed(); this.dropDemoPatientData(); this.patientsReady.set(false); this.changed(); } }
 
   private load(): SeedData {
     try {
@@ -36,6 +85,8 @@ export class StoreService {
   changed() {
     this.rev.update(v => v + 1);
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    // Live mode keeps nothing in browser storage: names and numbers also appear in logs and notifications.
+    if (LIVE) return;
     this.saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(this.db)); } catch { /* ignore */ } }, 250);
   }
 
@@ -86,7 +137,8 @@ export class StoreService {
   }
 
   log(action: string, entity: string, detail: string, risk: 'Normal' | 'Sensitive' | 'Flagged' = 'Normal') {
-    const u = (() => { try { return JSON.parse(localStorage.getItem('hospit-hms:session') || '{}'); } catch { return {}; } })();
+    const acct = this.auth.account();
+    const u = acct ? { userName: acct.name, roleId: acct.role } : (() => { try { return JSON.parse(localStorage.getItem('hospit-hms:session') || '{}'); } catch { return {}; } })();
     this.db.audit.unshift({ id: this.uid('AU'), time: this.nowStamp(), user: u.userName || 'Demo user', role: u.roleId || 'admin', action, entity, detail, ip: '10.20.1.15', branch: 'Udumalpet', risk });
   }
   notify(channel: Channel, type: NotificationMsg['type'], patientId: string, message: string) {

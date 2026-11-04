@@ -1,6 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { AuthService, apiMessage } from '../../core/api/auth.service';
+import { SessionService } from '../../core/services/session.service';
 import { SHARED } from '../../shared';
 import { ThemeService } from '../../core/services/theme.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -31,18 +33,21 @@ import { ToastService } from '../../core/services/toast.service';
       </svg>
     </section>
     <section class="panel">
-      <div class="topline"><span class="demo-tag">Prototype · fictional data only</span><button class="iconbtn" (click)="theme.toggle()" aria-label="Toggle dark mode"><lucide-icon [name]="theme.dark() ? 'sun' : 'moon'" [size]="18"></lucide-icon></button></div>
+      <div class="topline">@if (live) { <span class="demo-tag">Secure sign-in</span> } @else { <span class="demo-tag">Prototype · fictional data only</span> }<button class="iconbtn" (click)="theme.toggle()" aria-label="Toggle dark mode"><lucide-icon [name]="theme.dark() ? 'sun' : 'moon'" [size]="18"></lucide-icon></button></div>
       <form class="form" [formGroup]="f" (ngSubmit)="submit()" novalidate>
-        <div><h2>Sign in</h2><p class="muted">Use your hospital account. In this prototype any password of 6 or more characters works.</p></div>
+        <div><h2>Sign in</h2><p class="muted">@if (live) { Use the account your hospital administrator created for you. } @else { Use your hospital account. In this prototype any password of 6 or more characters works. }</p></div>
+        @if (error()) { <div class="banner err" role="alert">{{ error() }}</div> }
         <div class="field"><label for="email">Work email</label><input id="email" class="inp" formControlName="email" autocomplete="username">
           @if (f.controls.email.touched && f.controls.email.invalid) { <span class="errmsg">Enter a valid email address.</span> }</div>
         <div class="field"><label for="pw">Password</label>
           <div class="pw"><input id="pw" class="inp" [type]="show() ? 'text' : 'password'" formControlName="password" autocomplete="current-password"><button type="button" class="linkbtn small" (click)="show.set(!show())">{{ show() ? 'Hide' : 'Show' }}</button></div>
           @if (f.controls.password.touched && f.controls.password.invalid) { <span class="errmsg">Password needs at least 6 characters.</span> }</div>
-        <div class="row" style="justify-content:space-between"><label class="row small"><input type="checkbox" formControlName="remember"> Keep me signed in on this device</label><button type="button" class="linkbtn small" (click)="toast.info('Reset link sent to ' + (f.value.email || 'your email') + ' (simulated)')">Forgot password?</button></div>
+        <div class="row" style="justify-content:space-between"><label class="row small"><input type="checkbox" formControlName="remember"> Keep me signed in on this device</label><button type="button" class="linkbtn small" (click)="forgot()">Forgot password?</button></div>
         <button class="btn" type="submit" [disabled]="busy()">@if (busy()) { Signing in… } @else { Sign in }</button>
+        @if (!live) {
         <div class="or"><span>or</span></div>
         <div class="row"><button type="button" class="btn ghost" style="flex:1" (click)="sso()"><lucide-icon name="key-round" [size]="16"></lucide-icon>Single sign-on</button><button type="button" class="btn ghost" style="flex:1" (click)="otp()"><lucide-icon name="smartphone" [size]="16"></lucide-icon>Mobile OTP</button></div>
+        }
         <p class="small muted">Visiting as a patient? <a routerLink="/portal">Open the patient portal</a> · <a routerLink="/kiosk">Self-service kiosk</a></p>
       </form>
     </section>
@@ -58,16 +63,40 @@ import { ToastService } from '../../core/services/toast.service';
   .topline{display:flex;justify-content:space-between;align-items:center}
   .form{margin:auto;width:min(400px,100%);display:flex;flex-direction:column;gap:16px;padding:24px 0}.form h2{font-size:26px;font-weight:800;margin-bottom:6px}
   .pw{position:relative}.pw .linkbtn{position:absolute;right:12px;top:50%;transform:translateY(-50%)}
+  .banner.err{background:var(--red-soft);color:var(--red);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600}
   .or{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:12px}.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--line)}
   @media(max-width:900px){.wrap{grid-template-columns:1fr}.hero{padding-bottom:24px;padding-right:max(24px,env(safe-area-inset-right,0px));padding-left:max(24px,env(safe-area-inset-left,0px))}.art{display:none}}`]
 })
 export class LoginPage {
   theme = inject(ThemeService); toast = inject(ToastService); router = inject(Router);
-  show = signal(false); busy = signal(false);
-  f = inject(FormBuilder).nonNullable.group({ email: ['meera.rao@hospit.demo', [Validators.required, Validators.email]], password: ['demo1234', [Validators.required, Validators.minLength(6)]], remember: [true] });
-  submit() {
+  private auth = inject(AuthService); private session = inject(SessionService);
+  live = this.session.live;
+  show = signal(false); busy = signal(false); error = signal('');
+  f = inject(FormBuilder).nonNullable.group({
+    email: [this.live ? '' : 'meera.rao@hospit.demo', [Validators.required, Validators.email]],
+    password: [this.live ? '' : 'demo1234', [Validators.required, Validators.minLength(6)]],
+    remember: [!this.live],
+  });
+  constructor() {
+    if (inject(ActivatedRoute).snapshot.queryParamMap.get('expired')) this.error.set('Your session ended. Please sign in again.');
+  }
+  async submit() {
     this.f.markAllAsTouched(); if (this.f.invalid) return;
-    this.busy.set(true); setTimeout(() => { this.busy.set(false); this.router.navigate(['/select-role']); }, 700);
+    if (!this.live) { this.busy.set(true); setTimeout(() => { this.busy.set(false); this.router.navigate(['/select-role']); }, 700); return; }
+    this.busy.set(true); this.error.set('');
+    try {
+      const v = this.f.getRawValue();
+      const user = await this.auth.login(v.email.trim(), v.password, v.remember);
+      this.session.signIn(user.role);
+      this.router.navigate([user.mustChangePw ? '/change-password' : '/dashboard']);
+    } catch (e) {
+      this.error.set(apiMessage(e, 'Sign-in failed. Please try again'));
+      this.f.controls.password.setValue('');
+    } finally { this.busy.set(false); }
+  }
+  forgot() {
+    if (this.live) { this.toast.info('Ask your hospital administrator to reset your password. They will give you a temporary one.'); return; }
+    this.toast.info('Reset link sent to ' + (this.f.value.email || 'your email') + ' (simulated)');
   }
   sso() { this.toast.info('Redirected to the hospital identity provider (simulated)'); setTimeout(() => this.router.navigate(['/select-role']), 600); }
   otp() { this.toast.ok('OTP 482913 sent to +91 98450 ••••• (simulated). Signing you in.'); setTimeout(() => this.router.navigate(['/select-role']), 900); }

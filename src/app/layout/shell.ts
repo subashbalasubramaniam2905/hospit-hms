@@ -39,6 +39,7 @@ export class ShellComponent {
   constructor() {
     this.router.events.pipe(filter(e => e instanceof NavigationEnd)).subscribe(() => { this.sideOpen.set(false); this.searchOpen.set(false); this.noteOpen.set(false); document.querySelector('.content')?.scrollTo?.(0, 0); window.scrollTo(0, 0); });
     setInterval(() => this.store.tickQueue(), 60000);
+    if (this.session.live) this.store.syncPatients().catch(() => this.toast.err('Could not load patients from the server'));
   }
 
   @HostListener('document:keydown', ['$event']) key(e: KeyboardEvent) {
@@ -62,6 +63,7 @@ export class ShellComponent {
   openNote(n: { id: string; link?: string }) { const x = this.store.db.inbox.find(i => i.id === n.id); if (x) { x.read = true; this.store.changed(); } if (n.link) this.go(n.link); }
   markAllRead() { this.store.db.inbox.forEach(n => n.read = true); this.store.changed(); }
   signOut() { this.session.signOut(); this.router.navigate(['/login']); }
+  branches = computed(() => { const a = this.session.allowedBranches(); return this.store.db.branches.filter(b => !a || a.includes(b.id)); });
   resetDemo() { this.store.reset(); this.toast.ok('Demo data reset to the original fictional records'); this.router.navigate(['/dashboard']); }
   quick(path: string, q?: Record<string, string>) { this.go(path, q); }
 }

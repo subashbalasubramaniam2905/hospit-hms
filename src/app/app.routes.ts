@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './core/guards';
+import { authGuard, demoOnlyGuard, liveOnlyGuard } from './core/guards';
 import { ShellComponent } from './layout/shell';
 
 const f = (p: () => Promise<any>) => p;
@@ -7,7 +7,8 @@ const f = (p: () => Promise<any>) => p;
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'login' },
   { path: 'login', loadComponent: () => import('./features/auth/login').then(m => m.LoginPage), title: 'Sign in · HospitOS' },
-  { path: 'select-role', loadComponent: () => import('./features/auth/role-select').then(m => m.RoleSelectPage), title: 'Choose a role · HospitOS' },
+  { path: 'select-role', canActivate: [demoOnlyGuard], loadComponent: () => import('./features/auth/role-select').then(m => m.RoleSelectPage), title: 'Choose a role · HospitOS' },
+  { path: 'change-password', canActivate: [liveOnlyGuard], loadComponent: () => import('./features/auth/change-password').then(m => m.ChangePasswordPage), title: 'Change password · HospitOS' },
   { path: 'kiosk', loadComponent: () => import('./features/kiosk/kiosk').then(m => m.KioskPage), title: 'Self-service kiosk · HospitOS' },
   { path: 'portal', loadChildren: () => import('./features/portal/portal.routes').then(m => m.PORTAL_ROUTES) },
   {

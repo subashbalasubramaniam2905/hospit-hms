@@ -1,3 +1,4 @@
+import { LIVE } from '../../core/api/api-config';
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, Validators } from '@angular/forms';
@@ -144,6 +145,7 @@ export class KioskPage {
     return this.store.db.patients.find(p => p.id === v || p.id === 'HS-' + v || p.mobile.replace(/\D/g, '').endsWith(v.replace(/\D/g, '').slice(-10)));
   }
   find() {
+    if (LIVE) { this.toast.info('Self check-in is not connected yet. Please check in at the front desk.'); return; }
     const p = this.lookup(this.mode() === 'uhid' ? 'HS-' + this.entry() : this.entry());
     if (!p || this.entry().length < 7) { this.toast.err('No patient found. Check the number or register as a new patient.'); return; }
     this.found.set(p); this.step.set('confirm');
@@ -162,6 +164,8 @@ export class KioskPage {
   }
   private load(docId: string) { return this.store.db.queue.filter(q => q.doctorId === docId && q.step < 5).length; }
   register() {
+    // The kiosk has no staff sign-in, so it cannot create real records yet.
+    if (LIVE) { this.toast.info('New patients: please register at the front desk. Staff will give you your UHID.'); return; }
     const v = this.reg.getRawValue();
     const p = this.store.addPatient({ name: v.name.trim(), mobile: '+91 ' + v.mobile.slice(0, 5) + ' ' + v.mobile.slice(5), dob: v.dob, gender: v.gender as Patient['gender'], abha: v.abha || undefined, address: { line: '', city: v.city || 'Udumalpet', state: 'Tamil Nadu', pin: '' }, blood: 'Unknown', allergies: [], conditions: [], history: '', emergency: { name: '', relation: '', phone: '' }, consent: 'Given', primaryDoctorId: '' });
     this.toast.ok(`Registered as ${p.id}`); this.found.set(p); this.walkId = p.id; this.step.set('walkin');
