@@ -59,7 +59,7 @@ public class PrescriptionService {
   public PrescriptionRecord create(PrescriptionInput.Create in) {
     var me = CurrentUser.get();
     var doctor = lookup.actingDoctor(in.doctorId());
-    var patient = lookup.patient(in.patientId());
+    var patient = lookup.visiblePatient(in.patientId());
     if (in.consultationId() != null) {
       if (repo.byConsultation(in.consultationId()).isPresent())
         throw new ApiException(409, "This consultation already has a prescription");
@@ -123,7 +123,7 @@ public class PrescriptionService {
   }
 
   public List<SafetyAlert> alertsFor(String patientId, List<PrescriptionInput.Line> items) {
-    var patient = lookup.patient(patientId);
+    var patient = lookup.visiblePatient(patientId);
     var lines = (items == null ? List.<PrescriptionInput.Line>of() : items).stream()
         .map(l -> new DrugLine(l.name(), l.generic())).toList();
     return safety.check(patient.allergies(), lines);

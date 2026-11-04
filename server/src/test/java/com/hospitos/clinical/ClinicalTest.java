@@ -34,7 +34,7 @@ class ClinicalTest {
   @Autowired JdbcClient db;
   @Autowired PrescriptionService prescriptions;
 
-  String admin, doctor, doctor2, nurse, pharmacist, otherBranch, desk;
+  String admin, doctor, doctor2, nurse, pharmacist, otherBranch, desk, billing;
   String patientId;
 
   private String login(String email, String pw) throws Exception {
@@ -86,12 +86,14 @@ class ClinicalTest {
     user("cl-pharm@test.local", "pharmacist", "BR1");
     user("cl-br2@test.local", "doctor", "BR2");
     user("cl-desk@test.local", "receptionist", "BR1");
+    user("cl-bill@test.local", "billing", "BR1");
     doctor = firstLogin("cl-doc@test.local");
     doctor2 = firstLogin("cl-doc2@test.local");
     nurse = firstLogin("cl-nurse@test.local");
     pharmacist = firstLogin("cl-pharm@test.local");
     otherBranch = firstLogin("cl-br2@test.local");
     desk = firstLogin("cl-desk@test.local");
+    billing = firstLogin("cl-bill@test.local");
     patientId = ok(call(post("/api/patients"), admin, """
         {"name":"Selvi Murugan","dob":"1972-03-02","gender":"Female","mobile":"+91 90000 22222","consent":"Given","branchId":"BR1",
          "allergies":["Penicillin"],"conditions":["Type 2 diabetes"],"history":"Diabetes for 8 years","medications":"Metformin 500"}"""))
@@ -167,6 +169,16 @@ class ClinicalTest {
         .param(rx.get("id").asText()).query(Integer.class).single()).isEqualTo(1);
     assertThat(db.sql("select count(*) from audit_log where entity = 'Consultation' and action = 'Viewed' and entity_id = ?")
         .param(id).query(Integer.class).single()).isGreaterThanOrEqualTo(1);
+
+    // Only doctors sign; pharmacy cannot read notes; billing sees the visit without clinical text.
+    call(post("/api/clinical/consultations"), admin, "{\"patientId\":\"" + patientId + "\",\"doctorId\":\"CL-D1\"}")
+        .andExpect(status().isForbidden());
+    call(get("/api/clinical/consultations/" + id), pharmacist, null).andExpect(status().isForbidden());
+    var billed = ok(call(get("/api/clinical/consultations?status=Completed"), billing, null));
+    assertThat(billed.get(0).get("id").asText()).isEqualTo(id);
+    assertThat(billed.get(0).has("cc")).isFalse();
+    assertThat(billed.get(0).has("dx")).isFalse();
+    call(get("/api/clinical/prescriptions"), billing, null).andExpect(status().isForbidden());
 
     // Signed records are read-only.
     call(put("/api/clinical/consultations/" + id), doctor, "{\"version\":3,\"cc\":\"late edit\"}").andExpect(status().isConflict());

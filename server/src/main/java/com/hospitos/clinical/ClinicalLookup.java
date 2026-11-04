@@ -17,10 +17,14 @@ public class ClinicalLookup {
                              String familyHistory, String medications, List<String> conditions) {}
   public record DoctorFacts(String id, String name, String branchId, UUID userId) {}
 
-  public static final String CLINICAL_READERS =
-      "hasAnyRole('super-admin','admin','doctor','nurse','pharmacist','lab-tech','radiologist','billing')";
-  public static final String CLINICIANS = "hasAnyRole('super-admin','admin','doctor')";
-  public static final String VITALS_WRITERS = "hasAnyRole('super-admin','admin','doctor','nurse')";
+  /** Full clinical notes: clinicians and administrators (read-only for administrators). */
+  public static final String NOTE_READERS = "hasAnyRole('super-admin','admin','doctor','nurse')";
+  /** The consultation list; billing gets it without clinical text, to find unbilled visits. */
+  public static final String LIST_READERS = "hasAnyRole('super-admin','admin','doctor','nurse','billing')";
+  public static final String RX_READERS = "hasAnyRole('super-admin','admin','doctor','nurse','pharmacist')";
+  /** Only doctors write notes and sign prescriptions. */
+  public static final String CLINICIANS = "hasRole('doctor')";
+  public static final String VITALS_WRITERS = "hasAnyRole('doctor','nurse')";
 
   private final JdbcClient db;
   public ClinicalLookup(JdbcClient db) { this.db = db; }
@@ -31,6 +35,13 @@ public class ClinicalLookup {
         .query((r, i) -> new PatientFacts(r.getString(1), r.getString(2), r.getString(3), arr(r.getArray(4)), r.getString(5),
             r.getString(6), r.getString(7), arr(r.getArray(8))))
         .optional().orElseThrow(() -> new ApiException(404, "Patient not found"));
+  }
+
+  /** A patient the signed-in user may see (same rule as the patient index). */
+  public PatientFacts visiblePatient(String id) {
+    var p = patient(id);
+    if (!CurrentUser.get().canSee(p.branchId())) throw new ApiException(404, "Patient not found");
+    return p;
   }
 
   public DoctorFacts doctor(String id) {

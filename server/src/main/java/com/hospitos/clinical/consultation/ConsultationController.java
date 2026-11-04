@@ -1,6 +1,7 @@
 package com.hospitos.clinical.consultation;
 
-import static com.hospitos.clinical.ClinicalLookup.CLINICAL_READERS;
+import static com.hospitos.clinical.ClinicalLookup.LIST_READERS;
+import static com.hospitos.clinical.ClinicalLookup.NOTE_READERS;
 import static com.hospitos.clinical.ClinicalLookup.CLINICIANS;
 import static com.hospitos.clinical.ClinicalLookup.VITALS_WRITERS;
 
@@ -20,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
 /** The consultation workspace: notes, vitals, diagnoses and the linked prescription. */
 @RestController
 @RequestMapping("/api/clinical/consultations")
-@PreAuthorize(CLINICAL_READERS)
+@PreAuthorize(NOTE_READERS)
 public class ConsultationController {
   private final ConsultationService service;
   private final PrescriptionService rx;
@@ -33,12 +34,15 @@ public class ConsultationController {
   public record Detail(ConsultationRecord consultation, PrescriptionRecord prescription, List<SafetyAlert> alerts) {}
 
   @GetMapping
+  @PreAuthorize(LIST_READERS)
   public List<ConsultationRecord> list(@RequestParam(defaultValue = "") String patientId, @RequestParam(defaultValue = "") String doctorId,
                                        @RequestParam(defaultValue = "") String status,
                                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
                                        @RequestParam(defaultValue = "100") int limit, @RequestParam(defaultValue = "0") int offset) {
     var out = service.list(patientId, doctorId, status, date, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0));
-    if (!patientId.isBlank()) audit.logForBranch(CurrentUser.get().homeBranch(), "Viewed", "Consultations", patientId, out.size() + " consultations");
+    var me = CurrentUser.get();
+    if ("billing".equals(me.role())) return out.stream().map(ConsultationRecord::withoutClinicalText).toList();
+    if (!patientId.isBlank()) audit.logForBranch(me.homeBranch(), "Viewed", "Consultations", patientId, out.size() + " consultations");
     return out;
   }
 

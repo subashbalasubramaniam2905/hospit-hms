@@ -49,7 +49,7 @@ public class ConsultationService {
     var doctor = lookup.actingDoctor(in.doctorId());
     var existing = repo.openDraft(in.patientId(), doctor.id());
     if (existing.isPresent()) return repo.byId(existing.get()).orElseThrow();
-    var p = lookup.patient(in.patientId());
+    var p = lookup.visiblePatient(in.patientId());
     var me = CurrentUser.get();
     String template = p.conditions().stream().anyMatch(c -> c.toLowerCase().contains("diabetes")) ? "Diabetes care"
         : p.conditions().stream().anyMatch(c -> c.toLowerCase().contains("hypertension")) ? "Hypertension review" : "General medicine";

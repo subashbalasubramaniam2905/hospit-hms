@@ -60,9 +60,9 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 ## API (clinical)
 
 Consultations, vitals, diagnoses and prescriptions. Package `com.hospitos.clinical`, migrations V20–V22.
-Reading is open to super-admin, admin, doctor, nurse, pharmacist, lab-tech, radiologist and billing; writing notes and
-prescriptions to super-admin, admin and doctor; nurses may also record vitals. A doctor account linked to a doctor
-profile can only write as that doctor. Every read of a single record is audited.
+Only doctors write notes and sign prescriptions, and nurses may record vitals. Super-admin, admin, doctor and nurse can
+read consultations; pharmacists can also read prescriptions; billing gets the consultation list without clinical text
+(to find unbilled visits). A doctor account linked to a doctor profile can only write as that doctor. Every read of a single record is audited.
 
 | Method and path | What |
 | --- | --- |

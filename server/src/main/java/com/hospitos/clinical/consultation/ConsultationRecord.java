@@ -19,5 +19,11 @@ public record ConsultationRecord(UUID id, String branchId, String appointmentId,
 
   public record Diagnosis(String code, String label) {}
 
+  /** Who, when and status only, for staff who must not read clinical notes. */
+  public ConsultationRecord withoutClinicalText() {
+    return new ConsultationRecord(id, branchId, appointmentId, patientId, doctorId, date, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null, null, null, status, prescriptionId, version, completedAt);
+  }
+
   public static final String DRAFT = "Draft", COMPLETED = "Completed";
 }

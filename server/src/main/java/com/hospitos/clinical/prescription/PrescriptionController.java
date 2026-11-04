@@ -1,6 +1,6 @@
 package com.hospitos.clinical.prescription;
 
-import static com.hospitos.clinical.ClinicalLookup.CLINICAL_READERS;
+import static com.hospitos.clinical.ClinicalLookup.RX_READERS;
 import static com.hospitos.clinical.ClinicalLookup.CLINICIANS;
 
 import com.hospitos.audit.AuditService;
@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 /** Prescriptions. Doctors write and sign them; pharmacy and other clinical roles read them. */
 @RestController
 @RequestMapping("/api/clinical/prescriptions")
-@PreAuthorize(CLINICAL_READERS)
+@PreAuthorize(RX_READERS)
 public class PrescriptionController {
   private final PrescriptionService rx;
   private final AuditService audit;
