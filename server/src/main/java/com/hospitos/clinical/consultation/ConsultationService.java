@@ -63,7 +63,7 @@ public class ConsultationService {
     }
     repo.lastBody(p.id()).ifPresent(v -> repo.addVitals(id,
         new ConsultationInput.Vitals(null, null, null, null, null, v.height(), v.weight()), me.id()));
-    audit.log("Created", "Consultation", id.toString(), "Started consultation for " + p.name() + " with " + doctor.name());
+    audit.logForBranch(doctor.branchId(), "Created", "Consultation", id.toString(), "Started consultation for " + p.name() + " with " + doctor.name());
     return repo.byId(id).orElseThrow();
   }
 
@@ -76,7 +76,7 @@ public class ConsultationService {
     if (in.vitals() != null && !ConsultationRepository.sameVitals(c.vitals(), in.vitals()))
       repo.addVitals(id, in.vitals(), CurrentUser.get().id());
     if (in.prescription() != null) saveDraftRx(c, in.prescription(), diagnosisText(repo.byId(id).orElseThrow()));
-    audit.log("Updated", "Consultation", id.toString(), "Saved draft");
+    audit.logForBranch(c.branchId(), "Updated", "Consultation", id.toString(), "Saved draft");
     return repo.byId(id).orElseThrow();
   }
 
@@ -86,7 +86,7 @@ public class ConsultationService {
     var c = visible(id);
     if (!ConsultationRecord.DRAFT.equals(c.status())) throw new ApiException(409, "This consultation is already signed");
     repo.addVitals(id, v, CurrentUser.get().id());
-    audit.log("Recorded vitals", "Consultation", id.toString(), v.bp() == null ? "" : "BP " + v.bp());
+    audit.logForBranch(c.branchId(), "Recorded vitals", "Consultation", id.toString(), v.bp() == null ? "" : "BP " + v.bp());
     return repo.byId(id).orElseThrow();
   }
 
@@ -107,7 +107,7 @@ public class ConsultationService {
     }
     if (!repo.complete(id, in.version(), CurrentUser.get().id()))
       throw new ApiException(409, "Someone else updated this consultation. Reload and try again");
-    audit.log("Signed", "Consultation", id.toString(), "Completed consultation" + (c.dx().isEmpty() ? "" : " · " + c.dx().get(0).label()));
+    audit.logForBranch(c.branchId(), "Signed", "Consultation", id.toString(), "Completed consultation" + (c.dx().isEmpty() ? "" : " · " + c.dx().get(0).label()));
     return repo.byId(id).orElseThrow();
   }
 

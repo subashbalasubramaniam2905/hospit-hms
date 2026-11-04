@@ -8,6 +8,7 @@ import com.hospitos.audit.AuditService;
 import com.hospitos.clinical.prescription.PrescriptionRecord;
 import com.hospitos.clinical.prescription.PrescriptionService;
 import com.hospitos.clinical.safety.SafetyAlert;
+import com.hospitos.common.CurrentUser;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
@@ -37,14 +38,14 @@ public class ConsultationController {
                                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
                                        @RequestParam(defaultValue = "100") int limit, @RequestParam(defaultValue = "0") int offset) {
     var out = service.list(patientId, doctorId, status, date, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0));
-    if (!patientId.isBlank()) audit.log("Viewed", "Consultations", patientId, out.size() + " consultations");
+    if (!patientId.isBlank()) audit.logForBranch(CurrentUser.get().homeBranch(), "Viewed", "Consultations", patientId, out.size() + " consultations");
     return out;
   }
 
   @GetMapping("/{id}")
   public Detail get(@PathVariable UUID id) {
     var c = service.visible(id);
-    audit.log("Viewed", "Consultation", id.toString(), c.patientId());
+    audit.logForBranch(c.branchId(), "Viewed", "Consultation", id.toString(), c.patientId());
     return detail(c);
   }
 

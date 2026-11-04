@@ -66,7 +66,7 @@ public class PrescriptionService {
     }
     UUID id = repo.insert(doctor.branchId(), patient.id(), doctor.id(), in.consultationId(), in.diagnosis(), in.notes(), me.id());
     repo.replaceItems(id, in.items());
-    audit.log("Created", "Prescription", id.toString(), "Draft for " + patient.name());
+    audit.logForBranch(doctor.branchId(), "Created", "Prescription", id.toString(), "Draft for " + patient.name());
     return repo.byId(id).orElseThrow();
   }
 
@@ -79,7 +79,7 @@ public class PrescriptionService {
     if (!repo.updateDraft(id, in.version(), in.diagnosis(), in.notes()))
       throw new ApiException(409, "Someone else updated this prescription. Reload and try again");
     repo.replaceItems(id, in.items());
-    audit.log("Updated", "Prescription", id.toString(), (in.items() == null ? 0 : in.items().size()) + " medicines");
+    audit.logForBranch(rx.branchId(), "Updated", "Prescription", id.toString(), (in.items() == null ? 0 : in.items().size()) + " medicines");
     return repo.byId(id).orElseThrow();
   }
 
@@ -103,12 +103,12 @@ public class PrescriptionService {
     if (!blocking.isEmpty() && reason.length() < 5) throw new SafetyBlockedException(blocking);
     for (var a : blocking) {
       repo.addOverride(id, a.code(), a.kind(), a.title(), reason, me.id());
-      audit.log("Overrode safety alert", "Prescription", id.toString(), a.title() + " · " + reason);
+      audit.logForBranch(rx.branchId(), "Overrode safety alert", "Prescription", id.toString(), a.title() + " · " + reason);
     }
     String status = sendToPharmacy ? PrescriptionRecord.SENT : PrescriptionRecord.SIGNED;
     if (!repo.sign(id, version, status, me.id()))
       throw new ApiException(409, "Someone else updated this prescription. Reload and try again");
-    audit.log("Signed", "Prescription", id.toString(), status + " · " + patient.name() + " · " + rx.items().size() + " medicines");
+    audit.logForBranch(rx.branchId(), "Signed", "Prescription", id.toString(), status + " · " + patient.name() + " · " + rx.items().size() + " medicines");
     return repo.byId(id).orElseThrow();
   }
 
@@ -118,7 +118,7 @@ public class PrescriptionService {
     lookup.actingDoctor(rx.doctorId());
     if (!PrescriptionRecord.SIGNED.equals(rx.status())) throw new ApiException(409, "Only a signed prescription can be sent");
     if (!repo.sendSigned(id, version)) throw new ApiException(409, "Someone else updated this prescription. Reload and try again");
-    audit.log("Sent to pharmacy", "Prescription", id.toString(), "");
+    audit.logForBranch(rx.branchId(), "Sent to pharmacy", "Prescription", id.toString(), "");
     return repo.byId(id).orElseThrow();
   }
 

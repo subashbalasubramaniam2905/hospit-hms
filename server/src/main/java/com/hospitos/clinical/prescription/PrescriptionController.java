@@ -6,6 +6,7 @@ import static com.hospitos.clinical.ClinicalLookup.CLINICIANS;
 import com.hospitos.audit.AuditService;
 import com.hospitos.clinical.safety.SafetyAlert;
 import com.hospitos.common.ApiException;
+import com.hospitos.common.CurrentUser;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -28,14 +29,14 @@ public class PrescriptionController {
   public List<PrescriptionRecord> list(@RequestParam(defaultValue = "") String status, @RequestParam(defaultValue = "") String patientId,
                                        @RequestParam(defaultValue = "100") int limit, @RequestParam(defaultValue = "0") int offset) {
     var out = rx.list(status, patientId, Math.min(Math.max(limit, 1), 500), Math.max(offset, 0));
-    if (!patientId.isBlank()) audit.log("Viewed", "Prescriptions", patientId, out.size() + " prescriptions");
+    if (!patientId.isBlank()) audit.logForBranch(CurrentUser.get().homeBranch(), "Viewed", "Prescriptions", patientId, out.size() + " prescriptions");
     return out;
   }
 
   @GetMapping("/{id}")
   public Detail get(@PathVariable UUID id) {
     var p = rx.visible(id);
-    audit.log("Viewed", "Prescription", id.toString(), p.patientId());
+    audit.logForBranch(p.branchId(), "Viewed", "Prescription", id.toString(), p.patientId());
     return new Detail(p, rx.alertsFor(p));
   }
 

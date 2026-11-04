@@ -43,6 +43,13 @@ class ClinicalTest {
     return "Bearer " + json.readTree(res.getResponse().getContentAsString()).get("token").asText();
   }
 
+  private String firstLogin(String email) throws Exception {
+    String temp = login(email, "TempPass1234");
+    var r = mvc.perform(post("/api/auth/password").header("Authorization", temp).contentType(MediaType.APPLICATION_JSON)
+        .content("{\"currentPassword\":\"TempPass1234\",\"newPassword\":\"RealPass5678\"}")).andExpect(status().isOk()).andReturn();
+    return "Bearer " + json.readTree(r.getResponse().getContentAsString()).get("token").asText();
+  }
+
   private String user(String email, String role, String branch) throws Exception {
     var r = mvc.perform(post("/api/users").header("Authorization", admin).contentType(MediaType.APPLICATION_JSON)
         .content("{\"email\":\"" + email + "\",\"name\":\"" + role + " " + branch + "\",\"role\":\"" + role + "\",\"branches\":[\""
@@ -79,12 +86,12 @@ class ClinicalTest {
     user("cl-pharm@test.local", "pharmacist", "BR1");
     user("cl-br2@test.local", "doctor", "BR2");
     user("cl-desk@test.local", "receptionist", "BR1");
-    doctor = login("cl-doc@test.local", "TempPass1234");
-    doctor2 = login("cl-doc2@test.local", "TempPass1234");
-    nurse = login("cl-nurse@test.local", "TempPass1234");
-    pharmacist = login("cl-pharm@test.local", "TempPass1234");
-    otherBranch = login("cl-br2@test.local", "TempPass1234");
-    desk = login("cl-desk@test.local", "TempPass1234");
+    doctor = firstLogin("cl-doc@test.local");
+    doctor2 = firstLogin("cl-doc2@test.local");
+    nurse = firstLogin("cl-nurse@test.local");
+    pharmacist = firstLogin("cl-pharm@test.local");
+    otherBranch = firstLogin("cl-br2@test.local");
+    desk = firstLogin("cl-desk@test.local");
     patientId = ok(call(post("/api/patients"), admin, """
         {"name":"Selvi Murugan","dob":"1972-03-02","gender":"Female","mobile":"+91 90000 22222","consent":"Given","branchId":"BR1",
          "allergies":["Penicillin"],"conditions":["Type 2 diabetes"],"history":"Diabetes for 8 years","medications":"Metformin 500"}"""))
