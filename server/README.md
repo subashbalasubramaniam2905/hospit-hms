@@ -38,6 +38,33 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 | `POST /api/patients`, `PUT /api/patients/{id}` | super-admin, admin, doctor, nurse, receptionist | UHIDs are `HS-YY-NNNNN`. Updates must send `version`; a stale version returns 409. |
 | `GET /api/audit`, `GET /api/audit/verify` | super-admin, admin (verify: super-admin) | Append-only, hash-chained audit trail, filtered to the admin's branches, and an integrity check. |
 
+## API (appointments and OPD queue)
+
+Front desk is `super-admin, admin, doctor, nurse, receptionist`. Everything is limited to the user's branches; pass `branch=BR2` to narrow a list.
+Times are clinic time (`HOSPITOS_TIMEZONE`, default `Asia/Kolkata`), dates `YYYY-MM-DD`, times `HH:mm`.
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/appointments?from=&to=&doctorId=&patientId=&status=` | front desk, billing | Calendar. At most 400 days per call. |
+| `GET /api/appointments/slots?doctorId=&date=&duration=` | front desk, billing | The doctor's slot grid for a day, each slot `{time, ok, reason}`, plus `dayBlock` when the doctor doesn't consult that day. |
+| `GET /api/appointments/check?doctorId=&date=&time=&duration=&ignoreId=` | front desk, billing | Checks one time without booking. |
+| `POST /api/appointments` | front desk | `{patientId, doctorId, date, time, duration, type, notes, recurring}` → `{appointment, repeats, skipped}`. 409 with the reason when the slot is taken, outside hours, in the break, on leave or already past. `recurring` (Weekly, Every 2 weeks, Monthly) adds up to 3 visits and lists dates it skipped. Today's bookings get a token. |
+| `POST /api/appointments/walk-in` | front desk | `{patientId, doctorId, priority, emergency}` → `{appointment, queue}`. Books now and joins the queue at Billing. |
+| `POST /api/appointments/{id}/status` | front desk | `{status}`. Arrived checks in to the queue; Waiting and In consultation move the queue; Cancelled and No-show take the patient out of it. |
+| `POST /api/appointments/{id}/reschedule` | front desk | `{date, time}`. Scheduled or confirmed only. |
+| `POST /api/appointments/{id}/reminder` | front desk | Records that a reminder was sent. No WhatsApp or SMS goes out yet. |
+| `GET/POST /api/appointments/leave`, `DELETE /api/appointments/leave/{doctorId}/{date}` | read: front desk; change: super-admin, admin, receptionist | Doctor days off. Adding one returns the bookings that need moving. |
+| `GET /api/queue?date=` | front desk, billing, pharmacy, lab, radiology | Today's queue: `{id, token, patientId, doctorId, deptId, step, since, arrivedAt, priority, emergency, appointmentId, history}`. Steps 0 to 6 are Registration, Billing, Triage, Consultation, Lab / imaging, Pharmacy, Discharge. `since` is minutes at the current step. |
+| `POST /api/queue/{id}/move` | same | `{step}` or empty for the next step. Keeps the appointment status in step. |
+| `POST /api/queue/call-next` | front desk | `{deptId, doctorId}` (optional). Calls the next patient at Triage into Consultation: emergency, then priority, then longest wait. 204 when nobody is waiting. |
+| `PATCH /api/queue/{id}` | front desk | `{priority, emergency, doctorId}`. |
+| `POST /api/queue/{id}/left` | front desk | Left without being seen. The appointment becomes a no-show. |
+
+Double booking is blocked twice: bookings for one doctor-day are serialised with an advisory lock, and a Postgres exclusion
+constraint rejects overlapping scheduled or confirmed bookings even if something slips past. Tokens (`G-001`, `C-014`) are per
+branch, department and day, issued with an atomic upsert. Doctor hours come from `doctor.days/start_time/end_time/slot_min`, with a
+daily break in `doctor.break_start/break_end` (13:00 to 14:00 by default).
+
 ## Conventions for modules
 
 - **Package:** `com.hospitos.<module>` (for example `com.hospitos.appointments`). Controllers under `/api/<module>`.

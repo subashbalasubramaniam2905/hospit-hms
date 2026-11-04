@@ -39,7 +39,7 @@ export interface Appointment {
 }
 
 export const JOURNEY = ['Registration', 'Billing', 'Triage', 'Consultation', 'Lab / imaging', 'Pharmacy', 'Discharge'] as const;
-export interface QueueEntry { token: string; patientId: string; doctorId: string; deptId: string; step: number; since: number; arrivedAt: string; priority: boolean; emergency: boolean; appointmentId?: string; history: { step: number; at: string }[]; }
+export interface QueueEntry { id?: number; token: string; patientId: string; doctorId: string; deptId: string; step: number; since: number; arrivedAt: string; priority: boolean; emergency: boolean; appointmentId?: string; history: { step: number; at: string }[]; }
 
 export interface Vitals { bp: string; hr: number | null; temp: number | null; rr: number | null; spo2: number | null; height: number | null; weight: number | null; }
 export interface Diagnosis { code: string; label: string; }

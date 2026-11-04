@@ -1,9 +1,11 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SHARED, fmtDate } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
-import { Appointment, Patient } from '../../core/models';
+import { Appointment } from '../../core/models';
+import { FrontDeskService } from '../../core/services/front-desk.service';
+import { PatientHit, SlotInfo, apiMessage } from '../../core/api/appointments-api';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -33,13 +35,13 @@ import { Appointment, Patient } from '../../core/models';
           <div class="card-h"><h3>1. Patient</h3><div class="r seg"><button [class.on]="!walkIn()" (click)="walkIn.set(false)">Scheduled</button><button [class.on]="walkIn()" (click)="walkIn.set(true); date.set(store.today())">Walk-in now</button></div></div>
           @if (patient(); as p) {
             <div class="soft row"><cf-avatar [name]="p.name"></cf-avatar><div class="grow" style="flex:1"><b>{{ p.name }}</b><div class="muted small">{{ p.id }} · {{ p.dob | age }} y {{ p.gender }} · {{ p.mobile }}</div></div>
-              @for (a of p.allergies; track a) {<span class="st r">{{ a }} allergy</span>}<button class="btn ghost sm" (click)="patientId.set('')">Change</button></div>
+              @for (a of p.allergies ?? []; track a) {<span class="st r">{{ a }} allergy</span>}<button class="btn ghost sm" (click)="patientId.set('')">Change</button></div>
             @if (existing().length) { <div class="alert-box info" style="margin-top:10px"><lucide-icon name="info" [size]="16"></lucide-icon><div>{{ p.name.split(' ')[0] }} already has {{ existing().length }} upcoming: {{ existingText() }}</div></div> }
           } @else {
             <label class="search boxed"><lucide-icon name="search" [size]="16"></lucide-icon><input [ngModel]="pq()" (ngModelChange)="pq.set($event)" placeholder="Search by name, UHID or mobile" aria-label="Find patient"></label>
             @if (pq().length > 1) {
               <div class="pick" style="margin-top:8px">
-                @for (p of matches(); track p.id) { <button (click)="patientId.set(p.id); pq.set('')"><cf-avatar [name]="p.name"></cf-avatar><div><b>{{ p.name }}</b><div class="muted small">{{ p.id }} · {{ p.mobile }}</div></div></button> }
+                @for (p of matches(); track p.id) { <button (click)="pick(p)"><cf-avatar [name]="p.name"></cf-avatar><div><b>{{ p.name }}</b><div class="muted small">{{ p.id }} · {{ p.mobile }}</div></div></button> }
                 @empty { <div style="padding:12px" class="muted small">No match. <a routerLink="/patients/new">Register a new patient</a></div> }
               </div>
             }
@@ -68,10 +70,11 @@ import { Appointment, Patient } from '../../core/models';
           </div>
           @if (doctorId()) {
             <div class="section-title" style="margin-top:14px">Slots on {{ dateLabel() }}</div>
-            @if (dayBlock()) { <div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon>{{ dayBlock() }}</div> }
+            @if (slotsLoading()) { <p class="muted small">Loading slots…</p> }
+            @else if (dayBlock()) { <div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon>{{ dayBlock() }}</div> }
             @else {
             <div class="slots" style="margin-top:8px">
-              @for (s of grid(); track s.t) { <button [class.on]="time() === s.t" [disabled]="!s.ok" (click)="time.set(s.t)" [matTooltip]="s.reason || ''">{{ s.t | time12 }}</button> }
+              @for (s of grid(); track s.time) { <button [class.on]="time() === s.time" [disabled]="!s.ok" (click)="time.set(s.time)" [matTooltip]="s.reason || ''">{{ s.time | time12 }}</button> }
             </div>
             <p class="hint" style="margin-top:6px">{{ freeCount() }} free · struck-out slots are booked, passed or in the lunch break. Hover for the reason.</p>
             }
@@ -102,7 +105,7 @@ import { Appointment, Patient } from '../../core/models';
               @if (alts().length) { <div class="small muted">Nearest free: @for (t of alts(); track t) { <button class="chip" style="margin:2px" (click)="time.set(t)">{{ t | time12 }}</button> }</div> } }
           }
           <button class="btn" [disabled]="busy()" (click)="confirm()">@if (busy()) {Booking…} @else {<lucide-icon name="check" [size]="16"></lucide-icon>{{ walkIn() ? 'Add walk-in to queue' : 'Confirm booking' }}}</button>
-          <p class="hint">Confirmation is sent as a simulated WhatsApp message. No real message leaves the prototype.</p>
+          <p class="hint">@if (fd.live) {Availability is checked again on the server when you confirm.} @else {Confirmation is sent as a simulated WhatsApp message. No real message leaves the prototype.}</p>
         </div>
       </div>
     </div>
@@ -119,10 +122,14 @@ import { Appointment, Patient } from '../../core/models';
   </cf-modal>`
 })
 export class BookingPage {
-  store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  store = inject(StoreService); fd = inject(FrontDeskService); toast = inject(ToastService); router = inject(Router);
   patientId = signal(''); pq = signal(''); dept = signal(''); doctorId = signal(''); date = signal(this.store.today()); time = signal(''); duration = signal(15);
   walkIn = signal(false); touched = signal(false); busy = signal(false); done = signal<Appointment | null>(null); extra = signal(0);
   type: Appointment['type'] = 'New consultation'; recurring = 'None'; reminder = 'WhatsApp + SMS'; notes = '';
+  private picked = signal<PatientHit | null>(null);
+  matches = signal<PatientHit[]>([]);
+  grid = signal<SlotInfo[]>([]); dayBlock = signal(''); slotsLoading = signal(false);
+  private slotReq = 0; private searchReq = 0;
 
   constructor() {
     const q = inject(ActivatedRoute).snapshot.queryParamMap;
@@ -134,45 +141,78 @@ export class BookingPage {
     if (q.get('type')) this.type = q.get('type') as Appointment['type'];
     if (!this.doctorId() && this.patientId()) this.doctorId.set(this.store.patient(this.patientId())?.primaryDoctorId || '');
     const d = this.store.doctor(this.doctorId()); if (d) this.duration.set(d.slotMin);
+    this.fd.loadDirectory().catch(e => this.toast.err(apiMessage(e, 'Could not load doctors')));
+    if (this.patientId()) this.fd.loadUpcomingFor(this.patientId()).catch(() => { /* the warning is a nicety */ });
+
+    // Slot grid for the chosen doctor, day and length. Stale answers are dropped.
+    effect(() => {
+      this.store.rev(); const doc = this.doctorId(), date = this.date(), dur = this.duration();
+      if (!doc) { this.grid.set([]); this.dayBlock.set(''); return; }
+      const req = ++this.slotReq; this.slotsLoading.set(this.fd.live);
+      this.fd.slots(doc, date, dur).then(r => { if (req !== this.slotReq) return; this.grid.set(r.slots); this.dayBlock.set(r.dayBlock || ''); })
+        .catch(e => { if (req === this.slotReq) { this.grid.set([]); this.dayBlock.set(apiMessage(e, 'Could not load slots')); } })
+        .finally(() => { if (req === this.slotReq) this.slotsLoading.set(false); });
+    });
+    effect(() => {
+      const q = this.pq().trim(); const req = ++this.searchReq;
+      if (q.length < 2) { this.matches.set([]); return; }
+      setTimeout(() => {
+        if (req !== this.searchReq) return;
+        this.fd.searchPatients(q).then(r => { if (req === this.searchReq) this.matches.set(r); }).catch(e => this.toast.err(apiMessage(e, 'Patient search failed')));
+      }, this.fd.live ? 250 : 0);
+    });
   }
 
-  patient = computed(() => this.store.patient(this.patientId()));
+  patient = computed(() => this.store.patient(this.patientId()) ?? (this.picked()?.id === this.patientId() ? this.picked() : undefined));
   doctor = computed(() => this.store.doctor(this.doctorId()));
-  doctors = computed(() => this.store.db.doctors.filter(d => !this.dept() || d.deptId === this.dept()));
-  matches = computed(() => { const q = this.pq().toLowerCase(); const dg = q.replace(/\D/g, ''); return this.store.db.patients.filter(p => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || (dg.length > 3 && p.mobile.replace(/\D/g, '').includes(dg))).slice(0, 6); });
+  doctors = computed(() => { this.store.rev(); return this.store.db.doctors.filter(d => !this.dept() || d.deptId === this.dept()); });
   existing = computed(() => { this.store.rev(); return this.store.db.appointments.filter(a => a.patientId === this.patientId() && a.date >= this.store.today() && ['Scheduled', 'Confirmed'].includes(a.status)); });
   existingText = computed(() => this.existing().slice(0, 2).map(a => `${fmtDate(a.date)} ${a.time} with ${this.store.dname(a.doctorId)}`).join('; '));
   dateLabel = computed(() => fmtDate(this.date(), true));
-  dayBlock = computed(() => { const d = this.doctor(); if (!d) return ''; const r = this.store.checkSlot(d.id, this.date(), d.start, d.slotMin); return r.ok || !(r.reason?.includes('does not consult') || r.reason?.includes('on leave')) ? '' : r.reason; });
-  grid = computed(() => {
-    this.store.rev(); const d = this.doctor(); if (!d) return [];
-    const out: { t: string; ok: boolean; reason?: string }[] = []; const [h0] = d.start.split(':').map(Number); const [h1] = d.end.split(':').map(Number);
-    for (let h = h0; h < h1; h++) for (let m = 0; m < 60; m += d.slotMin) { const t = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; const r = this.store.checkSlot(d.id, this.date(), t, this.duration()); out.push({ t, ok: r.ok, reason: r.reason }); }
-    return out;
-  });
   freeCount = computed(() => this.grid().filter(s => s.ok).length);
-  conflict = computed(() => { if (this.walkIn() || !this.doctorId() || !this.time()) return null; return this.store.checkSlot(this.doctorId(), this.date(), this.time(), this.duration()); });
-  alts = computed(() => { const t = this.time(); if (!t) return []; const free = this.grid().filter(s => s.ok).map(s => s.t); return free.sort((a, b) => Math.abs(this.m(a) - this.m(t)) - Math.abs(this.m(b) - this.m(t))).slice(0, 3).sort(); });
+  conflict = computed(() => {
+    if (this.walkIn() || !this.doctorId() || !this.time()) return null;
+    const slot = this.grid().find(s => s.time === this.time());
+    if (slot) return { ok: slot.ok, reason: slot.reason };
+    if (this.dayBlock()) return { ok: false, reason: this.dayBlock() };
+    // A typed time between grid slots: the demo can check it here, the server checks it on confirm.
+    return this.fd.live ? null : this.store.checkSlot(this.doctorId(), this.date(), this.time(), this.duration());
+  });
+  alts = computed(() => { const t = this.time(); if (!t) return []; const free = this.grid().filter(s => s.ok).map(s => s.time); return free.sort((a, b) => Math.abs(this.m(a) - this.m(t)) - Math.abs(this.m(b) - this.m(t))).slice(0, 3).sort(); });
   private m(t: string) { const [h, mm] = t.split(':').map(Number); return h * 60 + mm; }
 
-  confirm() {
+  pick(p: PatientHit) {
+    this.picked.set(p); this.patientId.set(p.id); this.pq.set('');
+    if (!this.doctorId() && p.primaryDoctorId && this.store.doctor(p.primaryDoctorId)) this.doctorId.set(p.primaryDoctorId);
+    this.fd.loadUpcomingFor(p.id).catch(() => { /* the warning is a nicety */ });
+  }
+
+  async confirm() {
     this.touched.set(true);
     if (!this.patientId()) { this.toast.err('Choose a patient first'); return; }
     if (!this.doctorId()) { this.toast.err('Choose a doctor'); return; }
+    if (this.busy()) return;
     if (this.walkIn()) {
-      const a = this.store.walkIn(this.patientId(), this.doctorId());
-      this.toast.ok(`${this.store.pname(a.patientId)} added to the queue with token ${a.token}`); this.router.navigate(['/queue']); return;
+      this.busy.set(true);
+      try {
+        const a = await this.fd.walkIn(this.patientId(), this.doctorId());
+        this.toast.ok(`${this.store.pname(a.patientId)} added to the queue with token ${a.token}`); this.router.navigate(['/queue']);
+      } catch (e) { this.toast.err(apiMessage(e, 'Could not add the walk-in')); }
+      finally { this.busy.set(false); }
+      return;
     }
     if (!this.time()) { this.toast.err('Choose a time slot'); return; }
     const c = this.conflict(); if (c && !c.ok) { this.toast.err(c.reason || 'Slot not available'); return; }
     this.busy.set(true);
-    setTimeout(() => {
-      const before = this.store.db.appointments.length;
-      const a = this.store.book({ patientId: this.patientId(), doctorId: this.doctorId(), date: this.date(), time: this.time(), duration: this.duration(), type: this.type, notes: this.notes, recurring: this.recurring });
-      if (this.reminder === 'No reminder') a.reminderSent = false;
-      this.extra.set(this.store.db.appointments.length - before - 1);
-      this.busy.set(false); this.done.set(a);
-    }, 450);
+    try {
+      const r = await this.fd.book({ patientId: this.patientId(), doctorId: this.doctorId(), date: this.date(), time: this.time(), duration: this.duration(), type: this.type, notes: this.notes, recurring: this.recurring });
+      if (this.reminder === 'No reminder') r.appointment.reminderSent = false;
+      this.extra.set(r.extra);
+      if (r.skipped.length) this.toast.warn(`${r.skipped.length} repeat visit${r.skipped.length > 1 ? 's were' : ' was'} skipped because the slot was taken`);
+      this.done.set(r.appointment);
+    } catch (e) {
+      this.toast.err(apiMessage(e, 'Could not book this slot'));
+    } finally { this.busy.set(false); }
   }
-  reset() { this.done.set(null); this.time.set(''); this.notes = ''; this.recurring = 'None'; this.patientId.set(''); }
+  reset() { this.done.set(null); this.time.set(''); this.notes = ''; this.recurring = 'None'; this.patientId.set(''); this.picked.set(null); }
 }
