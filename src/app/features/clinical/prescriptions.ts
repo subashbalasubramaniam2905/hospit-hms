@@ -8,6 +8,8 @@ import { ExportService } from '../../core/services/export.service';
 import { SessionService } from '../../core/services/session.service';
 import { Prescription } from '../../core/models';
 
+import { ClinicalApi, toLines, toPrescription } from '../../core/api/clinical-api';
+import { apiMessage } from '../../core/api/auth.service';
 @Component({
   standalone: true, imports: [SHARED, RxDocComponent],
   template: `
@@ -51,9 +53,10 @@ import { Prescription } from '../../core/models';
 })
 export class PrescriptionsPage {
   printer = inject(ExportService);
+  private api = inject(ClinicalApi);
   store = inject(StoreService); toast = inject(ToastService); exp = inject(ExportService); session = inject(SessionService); router = inject(Router);
   statuses = ['All', 'Draft', 'Signed', 'Sent to pharmacy', 'Partially dispensed', 'Dispensed'];
-  q = signal(''); status = signal('All'); doc = signal(this.session.roleId() === 'doctor' ? 'D01' : ''); sel = signal<Prescription | null>(null);
+  q = signal(''); status = signal('All'); doc = signal(this.session.roleId() === 'doctor' && !this.session.live ? 'D01' : ''); sel = signal<Prescription | null>(null);
   cols = [
     { key: 'patient', label: 'Patient', value: (r: Prescription) => this.store.pname(r.patientId) }, { key: 'date', label: 'Date' },
     { key: 'doctor', label: 'Doctor', value: (r: Prescription) => this.store.dname(r.doctorId) }, { key: 'diagnosis', label: 'Diagnosis' },
@@ -62,10 +65,23 @@ export class PrescriptionsPage {
   all = computed(() => { this.store.rev(); return this.store.db.prescriptions; });
   today = computed(() => this.all().filter(r => r.date === this.store.today()));
   rows = computed(() => { const q = this.q().toLowerCase(); return this.all().filter(r => (this.status() === 'All' || r.status === this.status()) && (!this.doc() || r.doctorId === this.doc()) && (!q || r.id.toLowerCase().includes(q) || this.store.pname(r.patientId).toLowerCase().includes(q) || r.items.some(i => (i.name + i.generic).toLowerCase().includes(q)))).sort((a, b) => b.date.localeCompare(a.date)); });
+  constructor() {
+    // Live mode: prescriptions come from the server.
+    if (this.session.live) this.api.listPrescriptions({ limit: 300 })
+      .then(list => list.forEach(r => this.store.upsertPrescription(toPrescription(r))))
+      .catch(e => this.toast.err(apiMessage(e, 'Could not load prescriptions')));
+  }
   count(s: string) { return this.all().filter(r => r.status === s).length; }
   meds(r: Prescription) { return r.items.slice(0, 3).map(i => i.name).join(', ') + (r.items.length > 3 ? ` +${r.items.length - 3}` : ''); }
   print() { this.printer.printDoc(); }
   share(r: Prescription) { this.store.notify('WhatsApp', 'Prescription', r.patientId, `Your prescription ${r.id} is ready to view in the patient portal.`); this.toast.ok('Prescription link sent on WhatsApp (simulated)'); }
-  repeat(r: Prescription) { const n = this.store.newRx(r.patientId, r.doctorId, r.diagnosis); n.items = r.items.map(i => ({ ...i })); this.store.saveRx(n, 'Draft'); this.sel.set(null); this.router.navigate(['/prescriptions/new'], { queryParams: { rx: n.id } }); this.toast.info('Repeat prescription created as a draft. Review before signing.'); }
+  repeat(r: Prescription) {
+    if (this.session.live) {
+      this.api.createPrescription({ patientId: r.patientId, diagnosis: r.diagnosis, notes: r.notes, items: toLines(r.items) })
+        .then(n => { this.store.upsertPrescription(toPrescription(n)); this.sel.set(null); this.router.navigate(['/prescriptions/new'], { queryParams: { rx: n.id } }); this.toast.info('Repeat prescription created as a draft. Review before signing.'); })
+        .catch(e => this.toast.err(apiMessage(e, 'Could not create the repeat prescription')));
+      return;
+    }
+    const n = this.store.newRx(r.patientId, r.doctorId, r.diagnosis); n.items = r.items.map(i => ({ ...i })); this.store.saveRx(n, 'Draft'); this.sel.set(null); this.router.navigate(['/prescriptions/new'], { queryParams: { rx: n.id } }); this.toast.info('Repeat prescription created as a draft. Review before signing.'); }
   exportCsv() { this.exp.csv('prescriptions', this.rows().map(r => ({ Rx: r.id, Date: r.date, Patient: this.store.pname(r.patientId), Doctor: this.store.dname(r.doctorId), Diagnosis: r.diagnosis, Medicines: r.items.map(i => `${i.name} ${i.strength} ${i.frequency} ${i.duration}`).join('; '), Status: r.status }))); }
 }

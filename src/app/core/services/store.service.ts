@@ -68,6 +68,17 @@ export class StoreService {
     this.changed();
     return merged;
   }
+  /** Live mode: keeps a consultation or prescription returned by the server in memory, replacing any older copy. */
+  upsertConsultation(c: Consultation) {
+    const i = this.db.consultations.findIndex(x => x.id === c.id);
+    if (i >= 0) this.db.consultations[i] = c; else this.db.consultations.push(c);
+    this.changed(); return c;
+  }
+  upsertPrescription(rx: Prescription) {
+    const i = this.db.prescriptions.findIndex(x => x.id === rx.id);
+    if (i >= 0) this.db.prescriptions[i] = rx; else this.db.prescriptions.unshift(rx);
+    this.changed(); return rx;
+  }
   /** Live mode: forgets everything loaded for the previous user (called on sign-out and session expiry). */
   clearLivePatients() { if (LIVE) { this.db = buildSeed(); this.dropDemoPatientData(); this.extraNames.clear(); this.patientsReady.set(false); this.changed(); } }
 

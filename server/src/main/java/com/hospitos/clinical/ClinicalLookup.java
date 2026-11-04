@@ -1,0 +1,78 @@
+package com.hospitos.clinical;
+
+import com.hospitos.common.ApiException;
+import com.hospitos.common.CurrentUser;
+import java.sql.Array;
+import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Component;
+
+/** Reads the patient and doctor facts the clinical module needs, and enforces who may act for which doctor. */
+@Component
+public class ClinicalLookup {
+  public record PatientFacts(String id, String name, String branchId, List<String> allergies, String history,
+                             String familyHistory, String medications, List<String> conditions) {}
+  public record DoctorFacts(String id, String name, String branchId, UUID userId) {}
+
+  /** Full clinical notes: clinicians and administrators (read-only for administrators). */
+  public static final String NOTE_READERS = "hasAnyRole('super-admin','admin','doctor','nurse')";
+  /** The consultation list; billing gets it without clinical text, to find unbilled visits. */
+  public static final String LIST_READERS = "hasAnyRole('super-admin','admin','doctor','nurse','billing')";
+  public static final String RX_READERS = "hasAnyRole('super-admin','admin','doctor','nurse','pharmacist')";
+  /** Only doctors write notes and sign prescriptions. */
+  public static final String CLINICIANS = "hasRole('doctor')";
+  public static final String VITALS_WRITERS = "hasAnyRole('doctor','nurse')";
+
+  private final JdbcClient db;
+  public ClinicalLookup(JdbcClient db) { this.db = db; }
+
+  public PatientFacts patient(String id) {
+    return db.sql("select id, name, branch_id, allergies, history, family_history, medications, conditions from patient where id = ?")
+        .param(id)
+        .query((r, i) -> new PatientFacts(r.getString(1), r.getString(2), r.getString(3), arr(r.getArray(4)), r.getString(5),
+            r.getString(6), r.getString(7), arr(r.getArray(8))))
+        .optional().orElseThrow(() -> new ApiException(404, "Patient not found"));
+  }
+
+  /** A patient the signed-in user may see (same rule as the patient index). */
+  public PatientFacts visiblePatient(String id) {
+    var p = patient(id);
+    if (!CurrentUser.get().canSee(p.branchId())) throw new ApiException(404, "Patient not found");
+    return p;
+  }
+
+  public DoctorFacts doctor(String id) {
+    return db.sql("select id, name, branch_id, user_id from doctor where id = ?").param(id)
+        .query((r, i) -> new DoctorFacts(r.getString(1), r.getString(2), r.getString(3), r.getObject(4, UUID.class)))
+        .optional().orElseThrow(() -> new ApiException(404, "Doctor not found"));
+  }
+
+  /**
+   * The doctor a clinical record is written for. The user must see the doctor's branch, and a doctor account
+   * that is linked to a doctor profile may only write as that doctor.
+   */
+  public DoctorFacts actingDoctor(String doctorId) {
+    var me = CurrentUser.get();
+    if (doctorId == null || doctorId.isBlank())
+      doctorId = myDoctorId().orElseThrow(() -> new ApiException(400, "Choose the doctor for this record"));
+    var d = doctor(doctorId);
+    if (!me.canSee(d.branchId())) throw new ApiException(403, "You cannot work in this doctor's branch");
+    if ("doctor".equals(me.role())) {
+      var mine = myDoctorId();
+      if (mine.isPresent() && !mine.get().equals(d.id())) throw new ApiException(403, "You can only write records as yourself");
+    }
+    return d;
+  }
+
+  /** The doctor profile linked to the signed-in account, if any. */
+  public java.util.Optional<String> myDoctorId() {
+    return db.sql("select id from doctor where user_id = ?").param(CurrentUser.get().id()).query(String.class).optional();
+  }
+
+  private static List<String> arr(Array a) throws SQLException {
+    return a == null ? List.of() : Arrays.asList((String[]) a.getArray());
+  }
+}
