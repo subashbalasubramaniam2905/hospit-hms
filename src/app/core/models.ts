@@ -27,6 +27,8 @@ export interface Patient {
   emergency: { name: string; relation: string; phone: string };
   insurance?: Insurance; abha?: string; consent: 'Given' | 'Pending' | 'Withdrawn';
   registered: string; primaryDoctorId: string; documents: PatientDoc[]; branchId: string;
+  /** Server record version, used to detect concurrent edits (live mode only). */
+  version?: number;
 }
 
 export type ApptStatus = 'Scheduled' | 'Confirmed' | 'Arrived' | 'Waiting' | 'In consultation' | 'Completed' | 'Cancelled' | 'No-show';

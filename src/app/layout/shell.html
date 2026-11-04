@@ -18,7 +18,7 @@
     </nav>
     <div class="promo">
       <svg viewBox="0 0 100 100" aria-hidden="true"><rect x="30" y="18" width="40" height="12" rx="3" fill="var(--pri-2)"/><rect x="24" y="28" width="52" height="58" rx="10" fill="var(--pri)"/><rect x="34" y="44" width="32" height="28" rx="5" fill="var(--card)"/><path d="M50 50v16M42 58h16" stroke="var(--pri)" stroke-width="5" stroke-linecap="round"/><rect x="62" y="64" width="30" height="14" rx="7" fill="var(--pink)" transform="rotate(-30 77 71)"/></svg>
-      <span>Interactive prototype with fictional data. Nothing here is a real patient record.</span>
+      <span>@if (session.live) { Patients and sign-in are live. Other modules still show sample data until they are connected. } @else { Interactive prototype with fictional data. Nothing here is a real patient record. }</span>
       <a class="btn sm" routerLink="/patients/new">Register patient</a>
     </div>
   </aside>
@@ -59,7 +59,7 @@
       </mat-menu>
       <button class="chipbtn hide-s" [matMenuTriggerFor]="branchMenu" matTooltip="Switch branch"><lucide-icon name="building-2" [size]="15"></lucide-icon><span>{{ branch()?.name?.replace('HospitOS ', '') }}</span><lucide-icon name="chevron-down" [size]="13"></lucide-icon></button>
       <mat-menu #branchMenu="matMenu">
-        @for (b of store.db.branches; track b.id) { <button mat-menu-item (click)="session.setBranch(b.id); toast.ok('Switched to ' + b.name + ' (demo)')">{{ b.name }} · {{ b.city }}</button> }
+        @for (b of branches(); track b.id) { <button mat-menu-item (click)="session.setBranch(b.id); toast.ok('Switched to ' + b.name + (session.live ? '' : ' (demo)'))">{{ b.name }} · {{ b.city }}</button> }
       </mat-menu>
       <button class="iconbtn" (click)="theme.toggle()" [matTooltip]="theme.dark() ? 'Light mode' : 'Dark mode'" aria-label="Toggle dark mode"><lucide-icon [name]="theme.dark() ? 'sun' : 'moon'" [size]="18"></lucide-icon></button>
       <div class="notewrap">
@@ -80,12 +80,16 @@
         <lucide-icon name="chevron-down" [size]="14" class="hide-s"></lucide-icon>
       </button>
       <mat-menu #userMenu="matMenu" xPosition="before">
+        @if (session.live) {
+        <button mat-menu-item (click)="go('/change-password')"><lucide-icon name="key-round" [size]="15"></lucide-icon> Change password</button>
+        } @else {
         <div class="menu-h">Switch role (demo)</div>
         @for (r of session.roles; track r.id) {
           <button mat-menu-item (click)="switchRole(r.id)" [class.cur]="r.id === session.roleId()">{{ r.name }}</button>
         }
         <hr class="mh">
         <button mat-menu-item (click)="resetDemo()"><lucide-icon name="rotate-ccw" [size]="15"></lucide-icon> Reset demo data</button>
+        }
         <button mat-menu-item (click)="signOut()"><lucide-icon name="log-out" [size]="15"></lucide-icon> Sign out</button>
       </mat-menu>
     </header>

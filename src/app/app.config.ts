@@ -4,6 +4,8 @@ import { LocationStrategy } from '@angular/common';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { LucideAngularModule } from 'lucide-angular';
 import { routes } from './app.routes';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { apiInterceptor } from './core/api/api.interceptor';
 import { APP_ICONS } from './core/icons';
 import { MemoryLocationStrategy } from './core/services/memory-location';
 
@@ -17,6 +19,7 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes, withComponentInputBinding(), withHashLocation(), withInMemoryScrolling({ scrollPositionRestoration: 'top' })),
     ...(embedded ? [{ provide: LocationStrategy, useClass: MemoryLocationStrategy }] : []),
     provideAnimationsAsync(),
+    provideHttpClient(withInterceptors([apiInterceptor])),
     importProvidersFrom(LucideAngularModule.pick(APP_ICONS)),
   ]
 };

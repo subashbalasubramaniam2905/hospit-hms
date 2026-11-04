@@ -5,6 +5,10 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { SHARED, ageOf } from '../../shared';
 import { StoreService, DuplicateMatch } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
+import { SessionService } from '../../core/services/session.service';
+import { PatientInput, PatientsApi } from '../../core/api/patients-api';
+import { apiMessage } from '../../core/api/auth.service';
+import { Patient } from '../../core/models';
 
 const notFuture = (c: AbstractControl) => c.value && c.value > new Date().toISOString().slice(0, 10) ? { future: true } : null;
 
@@ -116,8 +120,8 @@ const notFuture = (c: AbstractControl) => c.value && c.value > new Date().toISOS
             </div>
           }
           @if (submitted() && f.invalid) { <div class="alert-box crit">Fix the {{ invalidCount() }} highlighted fields to continue.</div> }
-          <button class="btn" type="submit">Save patient</button>
-          <button class="btn ghost" type="button" (click)="save(true)">Save and book appointment</button>
+          <button class="btn" type="submit" [disabled]="saving()">@if (saving()) { Saving… } @else { Save patient }</button>
+          <button class="btn ghost" type="button" [disabled]="saving()" (click)="save(true)">Save and book appointment</button>
         </div>
       </aside>
     </form>
@@ -131,6 +135,9 @@ const notFuture = (c: AbstractControl) => c.value && c.value > new Date().toISOS
 })
 export class RegisterPage {
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  session = inject(SessionService); private patientsApi = inject(PatientsApi);
+  saving = signal(false);
+  private dupChecked = false;
   today = new Date().toISOString().slice(0, 10);
   states = ['Tamil Nadu', 'Karnataka', 'Kerala', 'Andhra Pradesh', 'Telangana', 'Maharashtra', 'Delhi', 'Other'];
   commonAllergies = ['Penicillin', 'Sulfonamides', 'NSAIDs', 'Peanuts', 'Latex', 'Iodinated contrast'];
@@ -152,7 +159,14 @@ export class RegisterPage {
     });
   }
   err(k: keyof typeof this.f.controls) { const c = this.f.controls[k]; return c.invalid && (c.touched || this.submitted()); }
-  checkDup() { const v = this.f.getRawValue(); if (v.name.length < 3 && v.mobile.length < 10) return; this.dups.set(this.store.findDuplicates(v.name, v.mobile, v.dob)); this.dupAck.set(false); }
+  async checkDup() {
+    const v = this.f.getRawValue(); if (v.name.length < 3 && v.mobile.length < 10) return;
+    if (this.session.live) {
+      try { this.dups.set(await this.patientsApi.duplicates(v.name, v.mobile, v.dob || undefined)); this.dupChecked = true; }
+      catch { this.dups.set([]); this.dupChecked = false; }
+    } else this.dups.set(this.store.findDuplicates(v.name, v.mobile, v.dob));
+    this.dupAck.set(false);
+  }
   toggleAllergy(a: string) { this.allergies.update(l => l.includes(a) ? l.filter(x => x !== a) : [...l, a]); }
   addAllergy(e: Event) { e.preventDefault(); const el = e.target as HTMLInputElement; const v = el.value.trim(); if (v && !this.allergies().includes(v)) this.allergies.update(l => [...l, v]); el.value = ''; }
   toggleCond(c: string) { this.conditions.update(l => l.includes(c) ? l.filter(x => x !== c) : [...l, c]); }
@@ -167,18 +181,28 @@ export class RegisterPage {
     const n = () => Math.floor(1000 + Math.random() * 9000);
     this.f.controls.abha.setValue(`91-${n()}-${n()}-${n()}`); this.abhaOk.set(true); this.toast.ok('OTP verified and ABHA created (simulated)');
   }
-  save(book: boolean) {
-    this.submitted.set(true); this.f.markAllAsTouched(); this.checkDup();
+  async save(book: boolean) {
+    if (this.saving()) return;
+    this.submitted.set(true); this.f.markAllAsTouched();
     if (this.f.invalid) { this.toast.err('Some required fields are missing or invalid'); return; }
+    if (!this.dupAck()) await this.checkDup();
+    if (this.session.live && !this.dupAck() && !this.dupChecked) { this.toast.err('Could not check for existing records. Check the connection and try again.'); return; }
     if (this.dups().length && !this.dupAck()) { this.toast.warn('Review the possible duplicate before saving'); return; }
     const v = this.f.getRawValue();
-    const p = this.store.addPatient({
+    const input: PatientInput = {
       name: v.name.trim(), dob: v.dob, gender: v.gender as 'Female', mobile: '+91 ' + v.mobile.slice(0, 5) + ' ' + v.mobile.slice(5), email: v.email || undefined,
       address: { line: v.line, city: v.city, state: v.state, pin: v.pin }, blood: v.blood, allergies: this.allergies(), conditions: this.conditions(),
       history: v.history || 'No significant past medical history.', medications: v.medications || 'None', emergency: { name: v.eName, relation: v.eRel, phone: '+91 ' + v.ePhone },
       insurance: v.insured ? { providerId: v.provider, policyNo: v.policy, validTill: v.validTill || this.store.day(365), sumInsured: +v.sum } : undefined,
-      abha: v.abha || undefined, consent: 'Given', primaryDoctorId: v.doctor,
-    });
+      abha: v.abha ? v.abha.replace(/\D/g, '').replace(/^(\d{2})(\d{4})(\d{4})(\d{4})$/, '$1-$2-$3-$4') : undefined, consent: 'Given', primaryDoctorId: v.doctor,
+    };
+    let p: Patient;
+    if (this.session.live) {
+      this.saving.set(true);
+      try { p = this.store.upsertPatient(await this.patientsApi.create({ ...input, branchId: this.session.branchId() })); }
+      catch (e) { this.toast.err(apiMessage(e, 'Could not register the patient')); return; }
+      finally { this.saving.set(false); }
+    } else p = this.store.addPatient(input);
     this.files().forEach((d, i) => p.documents.push({ id: 'DOC-N' + i, name: d.split(' · ')[0], type: 'Upload', date: this.store.today(), size: d.split(' · ')[1] }));
     this.toast.ok(`Registered ${p.name} · UHID ${p.id}`);
     this.router.navigate(book ? ['/appointments/new'] : ['/patients', p.id], book ? { queryParams: { patient: p.id } } : {});

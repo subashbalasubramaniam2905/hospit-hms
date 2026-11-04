@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { LIVE } from '../../core/api/api-config';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SHARED, Col, ageOf } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
@@ -25,7 +26,7 @@ import { Patient } from '../../core/models';
         <select class="inp" style="width:auto" [ngModel]="reg()" (ngModelChange)="reg.set($event)" aria-label="Registered"><option value="">Registered any time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="365">Last 12 months</option></select>
         @if (active()) { <button class="linkbtn small" (click)="clear()">Clear filters</button> }
       </div>
-      @if (loading()) { <cf-skeleton [rows]="8"></cf-skeleton> } @else {
+      @if (loading() || !store.patientsReady()) { <cf-skeleton [rows]="8"></cf-skeleton> } @else {
       <cf-table [rows]="rows()" [cols]="cols" [clickable]="true" (rowClick)="open($event)" [pageSize]="10" emptyTitle="No patients match" emptyText="Check the spelling, try the mobile number, or register a new patient.">
         <ng-template cfCell="name" let-p><div class="pname"><cf-avatar [name]="p.name"></cf-avatar><div>{{ p.name }}<small>{{ p.id }}</small></div></div></ng-template>
         <ng-template cfCell="age" let-p>{{ p.dob | age }} y · {{ p.gender[0] }}</ng-template>
@@ -58,6 +59,11 @@ export class PatientDirectoryPage {
   constructor() {
     const q = inject(ActivatedRoute).snapshot.queryParamMap.get('q'); if (q) this.q.set(q);
     setTimeout(() => this.loading.set(false), 350);
+    // Live mode: only recent patients are preloaded, so also ask the server for anything typed in the search box.
+    if (LIVE) {
+      let t: ReturnType<typeof setTimeout> | undefined;
+      effect(() => { const q = this.q(); clearTimeout(t); t = setTimeout(() => this.store.searchPatients(q).catch(() => { /* local results still shown */ }), 300); });
+    }
   }
   active = computed(() => !!(this.q() || this.gender() !== 'All' || this.age() || this.dept() || this.doc() || this.reg()));
   rows = computed(() => {
