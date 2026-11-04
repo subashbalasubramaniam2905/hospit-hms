@@ -35,6 +35,16 @@ class FoundationTest {
     return "Bearer " + json.readTree(res.getResponse().getContentAsString()).get("token").asText();
   }
 
+  /** Signs in with the temporary password, changes it as required, and returns the new token. */
+  private String firstLogin(String email) throws Exception {
+    String temp = login(email, "TempPass1234");
+    var r = mvc.perform(post("/api/auth/password").header("Authorization", temp).contentType(MediaType.APPLICATION_JSON)
+        .content("{\"currentPassword\":\"TempPass1234\",\"newPassword\":\"RealPass5678\"}")).andExpect(status().isOk()).andReturn();
+    // The temporary session is signed out by the change.
+    mvc.perform(get("/api/auth/me").header("Authorization", temp)).andExpect(status().isUnauthorized());
+    return "Bearer " + body(r).get("token").asText();
+  }
+
   private JsonNode body(org.springframework.test.web.servlet.MvcResult r) throws Exception {
     return json.readTree(r.getResponse().getContentAsString());
   }
@@ -64,8 +74,9 @@ class FoundationTest {
     for (int i = 0; i < 5; i++)
       mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
           .content("{\"email\":\"lock@test.local\",\"password\":\"wrong-pass\"}")).andExpect(status().isUnauthorized());
+    // Locked: even the right password gets the same generic answer as a wrong one.
     mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
-        .content("{\"email\":\"lock@test.local\",\"password\":\"TempPass1234\"}")).andExpect(status().isLocked());
+        .content("{\"email\":\"lock@test.local\",\"password\":\"TempPass1234\"}")).andExpect(status().isUnauthorized());
     mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
         .content("{\"email\":\"nobody@test.local\",\"password\":\"whatever\"}")).andExpect(status().isUnauthorized());
   }
@@ -76,9 +87,13 @@ class FoundationTest {
     createUser(admin, "desk1@test.local", "receptionist", "[\"BR1\"]");
     createUser(admin, "desk2@test.local", "receptionist", "[\"BR2\"]");
     createUser(admin, "hr@test.local", "hr", "[\"BR1\"]");
-    String desk1 = login("desk1@test.local", "TempPass1234");
-    String desk2 = login("desk2@test.local", "TempPass1234");
-    String hr = login("hr@test.local", "TempPass1234");
+    // A temporary password only allows changing it.
+    String temp = login("desk1@test.local", "TempPass1234");
+    mvc.perform(get("/api/patients").header("Authorization", temp)).andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("PASSWORD_CHANGE_REQUIRED"));
+    String desk1 = firstLogin("desk1@test.local");
+    String desk2 = firstLogin("desk2@test.local");
+    String hr = firstLogin("hr@test.local");
 
     var created = body(mvc.perform(post("/api/patients").header("Authorization", desk1).contentType(MediaType.APPLICATION_JSON)
         .content(PATIENT)).andExpect(status().isCreated()).andReturn());
@@ -115,6 +130,13 @@ class FoundationTest {
   @Test @Order(5)
   void auditTrailIsAppendOnlyAndVerifiable() throws Exception {
     String admin = login("admin@test.local", "AdminPass123");
+    // Concurrent writers must still produce an intact chain.
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+    var jobs = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+    for (int i = 0; i < 40; i++) jobs.add(pool.submit(() -> db.sql(
+        "insert into audit_log (user_name, role, action, entity, prev_hash, hash) values ('t', 't', 'Load', 'Test', '', '')").update()));
+    for (var j : jobs) j.get();
+    pool.shutdown();
     mvc.perform(get("/api/audit/verify").header("Authorization", admin)).andExpect(jsonPath("$.intact").value(true));
     mvc.perform(get("/api/audit?entity=Patient").header("Authorization", admin)).andExpect(jsonPath("$[0].entity").value("Patient"));
     org.assertj.core.api.Assertions.assertThatThrownBy(() -> db.sql("update audit_log set detail = 'x'").update())
@@ -124,10 +146,25 @@ class FoundationTest {
   }
 
   @Test @Order(6)
+  void suspendingAnAccountEndsItsSessionsImmediately() throws Exception {
+    String sa = login("admin@test.local", "AdminPass123");
+    String id = createUser(sa, "susp@test.local", "doctor", "[\"BR1\"]");
+    String doc = firstLogin("susp@test.local");
+    mvc.perform(get("/api/patients").header("Authorization", doc)).andExpect(status().isOk());
+    mvc.perform(put("/api/users/" + id).header("Authorization", sa).contentType(MediaType.APPLICATION_JSON)
+        .content("{\"name\":\"Doc\",\"role\":\"doctor\",\"branches\":[\"BR1\"],\"status\":\"Suspended\"}")).andExpect(status().isOk());
+    mvc.perform(get("/api/patients").header("Authorization", doc)).andExpect(status().isUnauthorized());
+    // Database errors are not leaked to the client.
+    mvc.perform(post("/api/patients").header("Authorization", sa).contentType(MediaType.APPLICATION_JSON)
+        .content(PATIENT.replace("{\"name\"", "{\"branchId\":\"BR9\",\"name\""))).andExpect(status().isConflict())
+        .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("patient_branch_id"))));
+  }
+
+  @Test @Order(7)
   void branchAdminCannotCreateSuperAdmin() throws Exception {
     String sa = login("admin@test.local", "AdminPass123");
     createUser(sa, "badmin@test.local", "admin", "[\"BR1\"]");
-    String badmin = login("badmin@test.local", "TempPass1234");
+    String badmin = firstLogin("badmin@test.local");
     mvc.perform(post("/api/users").header("Authorization", badmin).contentType(MediaType.APPLICATION_JSON)
         .content("{\"email\":\"x@test.local\",\"name\":\"X\",\"role\":\"super-admin\",\"branches\":[\"BR1\"],\"temporaryPassword\":\"TempPass1234\"}"))
         .andExpect(status().isForbidden());

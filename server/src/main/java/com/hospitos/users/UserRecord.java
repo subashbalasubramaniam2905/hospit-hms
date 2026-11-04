@@ -8,4 +8,5 @@ import java.util.UUID;
 public record UserRecord(UUID id, String email, String name, String role, List<String> branches,
                          @JsonIgnore String passwordHash, String status, boolean mustChangePw,
                          @JsonIgnore int failedLogins, @JsonIgnore OffsetDateTime lockedUntil,
-                         OffsetDateTime lastLogin, OffsetDateTime createdAt) {}
+                         OffsetDateTime lastLogin, OffsetDateTime createdAt,
+                         @JsonIgnore int tokenVersion) {}

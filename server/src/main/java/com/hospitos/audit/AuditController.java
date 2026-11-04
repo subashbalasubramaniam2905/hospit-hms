@@ -1,5 +1,6 @@
 package com.hospitos.audit;
 
+import com.hospitos.common.CurrentUser;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -17,29 +18,33 @@ public class AuditController {
   private final JdbcClient db;
   public AuditController(JdbcClient db) { this.db = db; }
 
-  public record Entry(long id, OffsetDateTime at, String userName, String role, String action, String entity,
+  public record Entry(long id, OffsetDateTime at, String userName, String role, String branchId, String action, String entity,
                       String entityId, String detail, String ip) {}
 
+  /** Super administrators see everything; branch administrators see entries for their own branches. */
   @GetMapping
   public List<Entry> list(@RequestParam(required = false) String entity, @RequestParam(required = false) String entityId,
                           @RequestParam(defaultValue = "200") int limit) {
+    var me = CurrentUser.get();
     return db.sql("""
-        select id, at, user_name, role, action, entity, entity_id, detail, ip from audit_log
+        select id, at, user_name, role, branch_id, action, entity, entity_id, detail, ip from audit_log
         where (:entity::text is null or entity = :entity) and (:entityId::text is null or entity_id = :entityId)
+          and (:all or branch_id = any(:branches))
         order by id desc limit :limit""")
         .param("entity", entity).param("entityId", entityId).param("limit", Math.min(Math.max(limit, 1), 1000))
+        .param("all", me.superAdmin()).param("branches", me.branches().toArray(String[]::new))
         .query(Entry.class).list();
   }
 
   /** Recomputes the hash chain and reports the first row that does not match, if any. */
   @GetMapping("/verify")
+  @PreAuthorize("hasRole('super-admin')")
   public Map<String, Object> verify() {
     Long broken = db.sql("""
         with c as (
-          select id, hash, prev_hash, lag(hash, 1, 'GENESIS') over (order by id) as expected_prev,
-                 encode(digest(prev_hash || '|' || at::text || '|' || coalesce(user_id::text, '') || '|' || user_name || '|' ||
-                   role || '|' || action || '|' || entity || '|' || coalesce(entity_id, '') || '|' || detail, 'sha256'), 'hex') as recomputed
-          from audit_log)
+          select a.id, a.hash, a.prev_hash, lag(a.hash, 1, 'GENESIS') over (order by a.id) as expected_prev,
+                 encode(digest(audit_payload(a), 'sha256'), 'hex') as recomputed
+          from audit_log a)
         select min(id) from c where prev_hash <> expected_prev or hash <> recomputed""")
         .query(Long.class).optional().orElse(null);
     long count = db.sql("select count(*) from audit_log").query(Long.class).single();

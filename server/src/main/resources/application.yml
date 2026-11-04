@@ -10,7 +10,9 @@ spring:
     default-property-inclusion: non_null
 server:
   port: ${PORT:8080}
-  error.include-message: always
+  error.include-message: never
+  # Trust X-Forwarded-For only from private-network proxies (Tomcat's default internal-proxies list).
+  forward-headers-strategy: native
 management:
   endpoints.web.exposure.include: health
 hospitos:

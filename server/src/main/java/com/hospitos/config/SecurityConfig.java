@@ -2,7 +2,15 @@ package com.hospitos.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.nio.charset.StandardCharsets;
-import java.util.Collection;
+import java.util.UUID;
+import com.hospitos.common.CurrentUser;
+import com.hospitos.common.StaffAuthentication;
+import com.hospitos.users.UserRepository;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import java.util.List;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -12,8 +20,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -21,7 +27,6 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -31,6 +36,21 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
+
+  private final Converter<Jwt, AbstractAuthenticationToken> staffConverter;
+
+  public SecurityConfig(UserRepository users) {
+    // Every request re-reads the account, so suspension, role and branch changes and password resets apply immediately.
+    this.staffConverter = jwt -> {
+      UUID id;
+      try { id = UUID.fromString(jwt.getSubject()); } catch (RuntimeException e) { throw new InvalidBearerTokenException("Invalid token"); }
+      var a = users.access(id).orElseThrow(() -> new InvalidBearerTokenException("Account no longer exists"));
+      if (!"Active".equals(a.status())) throw new InvalidBearerTokenException("Account is suspended");
+      Object tv = jwt.getClaim("tv");
+      if (!(tv instanceof Number n) || n.intValue() != a.tokenVersion()) throw new InvalidBearerTokenException("Session has been signed out");
+      return new StaffAuthentication(jwt, new CurrentUser(id, a.name(), a.role(), a.branches(), a.mustChangePw()));
+    };
+  }
 
   @Bean
   SecurityFilterChain api(HttpSecurity http) throws Exception {
@@ -42,19 +62,21 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
             .requestMatchers("/actuator/health").permitAll()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-            .anyRequest().authenticated())
-        .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(roleConverter())));
+            .requestMatchers("/api/auth/me", "/api/auth/password").authenticated()
+            // Accounts still on a temporary password can only change it.
+            .anyRequest().access((auth, ctx) -> new AuthorizationDecision(
+                auth.get() instanceof StaffAuthentication s && !s.user().mustChangePw())))
+        .exceptionHandling(e -> e.accessDeniedHandler((req, res, ex) -> {
+          var a = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+          boolean pw = a instanceof StaffAuthentication s && s.user().mustChangePw();
+          res.setStatus(403);
+          res.setContentType("application/problem+json");
+          res.getWriter().write(pw
+              ? "{\"status\":403,\"title\":\"Forbidden\",\"code\":\"PASSWORD_CHANGE_REQUIRED\",\"detail\":\"Change your temporary password first\"}"
+              : "{\"status\":403,\"title\":\"Forbidden\",\"detail\":\"Your role does not allow this action\"}");
+        }))
+        .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(staffConverter)));
     return http.build();
-  }
-
-  private JwtAuthenticationConverter roleConverter() {
-    var c = new JwtAuthenticationConverter();
-    c.setJwtGrantedAuthoritiesConverter(jwt -> {
-      String role = jwt.getClaimAsString("role");
-      Collection<GrantedAuthority> out = role == null ? List.of() : List.of(new SimpleGrantedAuthority("ROLE_" + role));
-      return out;
-    });
-    return c;
   }
 
   private SecretKey key(AppProperties props) {

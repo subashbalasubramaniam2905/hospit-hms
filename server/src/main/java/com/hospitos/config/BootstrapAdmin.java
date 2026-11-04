@@ -34,7 +34,7 @@ public class BootstrapAdmin implements ApplicationRunner {
     }
     PasswordPolicy.check(a.password());
     var id = users.create(a.email(), a.name(), "super-admin", List.of("BR1", "BR2", "BR3"), encoder.encode(a.password()), false);
-    audit.write(id, a.name(), "super-admin", "Created", "User", id.toString(), "First super administrator (bootstrap)");
+    audit.write(id, a.name(), "super-admin", null, "Created", "User", id.toString(), "First super administrator (bootstrap)");
     log.info("Created first super administrator {}", a.email());
   }
 }

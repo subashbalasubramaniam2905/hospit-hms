@@ -28,6 +28,8 @@ create table app_user (
   password_hash   text not null,
   status          text not null default 'Active' check (status in ('Active','Suspended')),
   must_change_pw  boolean not null default true,
+  -- Every token carries this number; bumping it (password change, reset, suspension) signs out all sessions.
+  token_version   int not null default 0,
   failed_logins   int not null default 0,
   locked_until    timestamptz,
   last_login      timestamptz,
@@ -81,6 +83,7 @@ create table audit_log (
   user_id     uuid,
   user_name   text not null,
   role        text not null,
+  branch_id   text,
   action      text not null,
   entity      text not null,
   entity_id   text,
@@ -92,15 +95,24 @@ create table audit_log (
 create index audit_entity_idx on audit_log (entity, entity_id);
 create index audit_at_idx on audit_log (at desc);
 
+-- The canonical text that each row's hash covers. Timestamps are rendered in UTC so the result
+-- does not depend on the session's TimeZone or DateStyle.
+create function audit_payload(a audit_log) returns text language sql stable as $$
+  select a.prev_hash || '|' || a.id::text || '|' || to_char(a.at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || '|' ||
+         coalesce(a.user_id::text, '') || '|' || a.user_name || '|' || a.role || '|' || coalesce(a.branch_id, '') || '|' ||
+         a.action || '|' || a.entity || '|' || coalesce(a.entity_id, '') || '|' || a.detail
+$$;
+
 create function audit_chain() returns trigger language plpgsql as $$
 declare last text;
 begin
+  -- Serialise writers, then take the id inside the lock so id order is chain order.
   perform pg_advisory_xact_lock(7302461);
+  new.id := nextval(pg_get_serial_sequence('audit_log', 'id'));
+  new.at := clock_timestamp();
   select hash into last from audit_log order by id desc limit 1;
   new.prev_hash := coalesce(last, 'GENESIS');
-  new.hash := encode(digest(new.prev_hash || '|' || new.at::text || '|' || coalesce(new.user_id::text, '') || '|' ||
-              new.user_name || '|' || new.role || '|' || new.action || '|' || new.entity || '|' ||
-              coalesce(new.entity_id, '') || '|' || new.detail, 'sha256'), 'hex');
+  new.hash := encode(digest(audit_payload(new), 'sha256'), 'hex');
   return new;
 end $$;
 create trigger audit_chain_bi before insert on audit_log for each row execute function audit_chain();

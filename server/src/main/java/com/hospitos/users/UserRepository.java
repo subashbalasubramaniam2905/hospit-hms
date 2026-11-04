@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class UserRepository {
-  private static final String COLS = "id, email, name, role, branches, password_hash, status, must_change_pw, failed_logins, locked_until, last_login, created_at";
+  private static final String COLS = "id, email, name, role, branches, password_hash, status, must_change_pw, failed_logins, locked_until, last_login, created_at, token_version";
   private final JdbcClient db;
   public UserRepository(JdbcClient db) { this.db = db; }
 
@@ -22,7 +22,7 @@ public class UserRepository {
     return new UserRecord(r.getObject("id", UUID.class), r.getString("email"), r.getString("name"), r.getString("role"),
         arr(r.getArray("branches")), r.getString("password_hash"), r.getString("status"), r.getBoolean("must_change_pw"),
         r.getInt("failed_logins"), r.getObject("locked_until", java.time.OffsetDateTime.class),
-        r.getObject("last_login", java.time.OffsetDateTime.class), r.getObject("created_at", java.time.OffsetDateTime.class));
+        r.getObject("last_login", java.time.OffsetDateTime.class), r.getObject("created_at", java.time.OffsetDateTime.class), r.getInt("token_version"));
   }
 
   public Optional<UserRecord> byEmail(String email) {
@@ -44,9 +44,23 @@ public class UserRepository {
     db.sql("update app_user set name = ?, role = ?, branches = ?, status = ?, updated_at = now() where id = ?")
         .params(name, role, branches.toArray(String[]::new), status, id).update();
   }
+  /** Also revokes every token issued before now, so a leaked or old session stops working. */
   public void setPassword(UUID id, String hash, boolean mustChange) {
-    db.sql("update app_user set password_hash = ?, must_change_pw = ?, failed_logins = 0, locked_until = null, updated_at = now() where id = ?")
+    db.sql("""
+        update app_user set password_hash = ?, must_change_pw = ?, failed_logins = 0, locked_until = null,
+          token_version = token_version + 1, updated_at = now() where id = ?""")
         .params(hash, mustChange, id).update();
+  }
+  public void revokeTokens(UUID id) {
+    db.sql("update app_user set token_version = token_version + 1 where id = ?").param(id).update();
+  }
+  /** What every authenticated request needs: current role, branches and whether the account may act. */
+  public record Access(String name, String role, java.util.List<String> branches, String status, boolean mustChangePw,
+                       int tokenVersion) {}
+  public Optional<Access> access(UUID id) {
+    return db.sql("select name, role, branches, status, must_change_pw, token_version from app_user where id = ?").param(id)
+        .query((r, i) -> new Access(r.getString("name"), r.getString("role"), arr(r.getArray("branches")), r.getString("status"),
+            r.getBoolean("must_change_pw"), r.getInt("token_version"))).optional();
   }
   public void loginOk(UUID id) {
     db.sql("update app_user set failed_logins = 0, locked_until = null, last_login = now() where id = ?").param(id).update();

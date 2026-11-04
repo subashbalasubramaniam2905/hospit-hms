@@ -44,7 +44,7 @@ public class UserController {
     PasswordPolicy.check(req.temporaryPassword());
     if (users.byEmail(req.email()).isPresent()) throw new ApiException(409, "An account with this email already exists");
     UUID id = users.create(req.email(), req.name(), req.role(), req.branches(), encoder.encode(req.temporaryPassword()), true);
-    audit.log("Created", "User", id.toString(), req.name() + " as " + req.role());
+    audit.logForBranch(req.branches().isEmpty() ? null : req.branches().get(0), "Created", "User", id.toString(), req.name() + " as " + req.role());
     return users.byId(id).orElseThrow();
   }
 
@@ -56,7 +56,8 @@ public class UserController {
     if (!List.of("Active", "Suspended").contains(req.status())) throw new ApiException(400, "Status must be Active or Suspended");
     if (id.equals(CurrentUser.get().id()) && !"Active".equals(req.status())) throw new ApiException(400, "You cannot suspend your own account");
     users.update(id, req.name(), req.role(), req.branches(), req.status());
-    audit.log("Updated", "User", id.toString(), req.name() + " · " + req.role() + " · " + req.status());
+    if (!"Active".equals(req.status())) users.revokeTokens(id);
+    audit.logForBranch(req.branches().isEmpty() ? null : req.branches().get(0), "Updated", "User", id.toString(), req.name() + " · " + req.role() + " · " + req.status());
     return users.byId(id).orElseThrow();
   }
 
@@ -66,7 +67,7 @@ public class UserController {
     checkRole(existing.role(), existing.branches());
     PasswordPolicy.check(req.temporaryPassword());
     users.setPassword(id, encoder.encode(req.temporaryPassword()), true);
-    audit.log("Reset password", "User", id.toString(), existing.name());
+    audit.logForBranch(existing.branches().isEmpty() ? null : existing.branches().get(0), "Reset password", "User", id.toString(), existing.name());
   }
 
   /** Branch administrators manage only their own branches and cannot create or edit super administrators. */

@@ -23,7 +23,7 @@ public class TokenService {
     Instant now = Instant.now(), exp = now.plus(Duration.ofHours(props.tokenHours()));
     var claims = JwtClaimsSet.builder()
         .issuer("hospitos").subject(u.id().toString()).issuedAt(now).expiresAt(exp)
-        .claim("name", u.name()).claim("email", u.email()).claim("role", u.role()).claim("branches", u.branches())
+        .claim("name", u.name()).claim("email", u.email()).claim("role", u.role()).claim("branches", u.branches()).claim("tv", u.tokenVersion())
         .build();
     String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     return new Issued(token, exp);

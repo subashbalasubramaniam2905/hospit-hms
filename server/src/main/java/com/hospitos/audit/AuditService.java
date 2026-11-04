@@ -1,7 +1,6 @@
 package com.hospitos.audit;
 
 import com.hospitos.common.CurrentUser;
-import jakarta.servlet.http.HttpServletRequest;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -14,25 +13,27 @@ public class AuditService {
   private final JdbcClient db;
   public AuditService(JdbcClient db) { this.db = db; }
 
+  /** Logs an action by the signed-in user that is not tied to one branch (visible to super administrators). */
   public void log(String action, String entity, String entityId, String detail) {
-    var u = CurrentUser.get();
-    write(u.id(), u.name(), u.role(), action, entity, entityId, detail);
+    logForBranch(null, action, entity, entityId, detail);
   }
 
-  public void write(UUID userId, String userName, String role, String action, String entity, String entityId, String detail) {
+  /** Logs an action on a record that belongs to a branch, so that branch's administrators can review it. */
+  public void logForBranch(String branchId, String action, String entity, String entityId, String detail) {
+    var u = CurrentUser.get();
+    write(u.id(), u.name(), u.role(), branchId, action, entity, entityId, detail);
+  }
+
+  public void write(UUID userId, String userName, String role, String branchId, String action, String entity, String entityId, String detail) {
     db.sql("""
-        insert into audit_log (user_id, user_name, role, action, entity, entity_id, detail, ip, prev_hash, hash)
-        values (?, ?, ?, ?, ?, ?, ?, ?, '', '')""")
-        .params(userId, userName, role, action, entity, entityId, detail == null ? "" : detail, ip())
+        insert into audit_log (user_id, user_name, role, branch_id, action, entity, entity_id, detail, ip, prev_hash, hash)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '')""")
+        .params(userId, userName, role, branchId, action, entity, entityId, detail == null ? "" : detail, ip())
         .update();
   }
 
+  /** The client address as resolved by the servlet container. X-Forwarded-For is honoured only from trusted proxies. */
   private static String ip() {
-    if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes a) {
-      HttpServletRequest r = a.getRequest();
-      String fwd = r.getHeader("X-Forwarded-For");
-      return fwd != null ? fwd.split(",")[0].trim() : r.getRemoteAddr();
-    }
-    return null;
+    return RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes a ? a.getRequest().getRemoteAddr() : null;
   }
 }
