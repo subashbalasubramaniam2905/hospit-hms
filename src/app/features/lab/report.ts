@@ -4,6 +4,10 @@ import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportService } from '../../core/services/export.service';
 import { LabParam } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { LabApi, LiveLabOrder } from '../../core/api/lab-api';
+import { LiveSync } from '../../core/api/live-sync';
+
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -20,12 +24,12 @@ import { LabParam } from '../../core/models';
     <div class="wrap">
       <div class="doc">
         <header>
-          <div><div class="brand">{{ store.db.config.name }}</div><div style="color:#6f7d79;font-size:12px">Department of Laboratory Medicine · NABL-style layout (demo)<br>{{ store.db.config.address }}</div></div>
+          <div><div class="brand">{{ store.db.config.name }}</div><div style="color:#6f7d79;font-size:12px">Department of Laboratory Medicine{{ live ? '' : ' · NABL-style layout (demo)' }}<br>{{ store.db.config.address }}</div></div>
           <div style="text-align:right;font-size:12px"><b>Report {{ o.id }}</b><br>Sample {{ o.sampleId }}<br>Collected {{ o.date | d:true }} {{ o.collectedAt }}</div>
         </header>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:12.5px">
-          <div>Patient: <b>{{ p?.name }}</b></div><div>UHID: <b>{{ p?.id }}</b></div>
-          <div>Age / sex: {{ p?.dob | age }} y / {{ p?.gender }}</div><div>Referred by: {{ store.dname(o.doctorId) }}</div>
+          <div>Patient: <b>{{ p?.name ?? pn(o) }}</b></div><div>UHID: <b>{{ o.patientId }}</b></div>
+          <div>Age / sex: {{ p?.dob | age }} y / {{ p?.gender }}</div><div>Referred by: {{ dn(o) ?? store.dname(o.doctorId) }}</div>
         </div>
         @for (tid of o.testIds; track tid) { @let t = store.test(tid);
           @if (t) {
@@ -35,9 +39,9 @@ import { LabParam } from '../../core/models';
           </tbody></table> }
         }
         @if (o.comments) { <div><b>Comments:</b> {{ o.comments }}</div> }
-        @if (crit().length) { <div style="color:#b42318;font-weight:700">Critical values were phoned to the referring doctor (simulated).</div> }
-        <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:12px"><div>Technician: Lab tech (demo)</div><div style="text-align:right">@if (o.verifiedBy) {<b>{{ o.verifiedBy }}</b><br>Electronically verified} @else {Pending verification}</div></div>
-        <div class="foot"><b style="color:#b45309">PROTOTYPE REPORT · FICTIONAL DATA · NOT FOR CLINICAL USE</b><br>H = above range, L = below range, C = critical. Reference ranges are illustrative.</div>
+        @if (crit().length) { <div style="color:#b42318;font-weight:700">{{ live ? 'Report contains critical values. Inform the referring doctor.' : 'Critical values were phoned to the referring doctor (simulated).' }}</div> }
+        <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:12px"><div>@if (!live) {Technician: Lab tech (demo)}</div><div style="text-align:right">@if (o.verifiedBy) {<b>{{ o.verifiedBy }}</b><br>Electronically verified} @else {Pending verification}</div></div>
+        <div class="foot">@if (!live) {<b style="color:#b45309">PROTOTYPE REPORT · FICTIONAL DATA · NOT FOR CLINICAL USE</b><br>}H = above range, L = below range, C = critical.{{ live ? '' : ' Reference ranges are illustrative.' }}</div>
       </div>
     </div>
   </div>
@@ -45,10 +49,14 @@ import { LabParam } from '../../core/models';
 })
 export class LabReportPage {
   store = inject(StoreService); toast = inject(ToastService); printer = inject(ExportService);
+  session = inject(SessionService); private api = inject(LabApi); private sync = inject(LiveSync); live = this.session.live;
+  constructor() { if (this.live) this.sync.loadLab().catch(() => this.toast.err('Could not load lab orders from the server')); }
+  pn(o: object) { return (o as LiveLabOrder).patientName; }
+  dn(o: object) { return (o as LiveLabOrder).doctorName; }
   id = input<string>('');
   o = computed(() => { this.store.rev(); return this.store.db.labOrders.find(x => x.id === this.id()); });
   crit = computed(() => { const o = this.o(); return o ? this.store.criticals(o) : []; });
   flag(tid: string, p: LabParam) { const v = this.o()?.results[tid]?.[p.name]; if (v == null) return ''; if ((p.critHigh != null && v >= p.critHigh) || (p.critLow != null && v <= p.critLow)) return 'C'; return v > p.high ? 'H' : v < p.low ? 'L' : ''; }
   flagLabel(tid: string, p: LabParam) { const f = this.flag(tid, p); return f ? `(${f})` : ''; }
-  deliver() { this.store.deliverLab(this.o()!); this.toast.ok('Report sent on WhatsApp and published to the patient portal (simulated)'); }
+  deliver() { if (this.live) { this.sync.labAction(() => this.api.deliver(this.o()!.id), () => 'Report marked as delivered to the patient'); return; } this.store.deliverLab(this.o()!); this.toast.ok('Report sent on WhatsApp and published to the patient portal (simulated)'); }
 }

@@ -4,6 +4,11 @@ import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { LabOrder, LabParam } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { LabApi, LiveLabOrder } from '../../core/api/lab-api';
+import { LiveSync } from '../../core/api/live-sync';
+import { apiMessage } from '../../core/api/auth.service';
+
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -67,6 +72,8 @@ import { LabOrder, LabParam } from '../../core/models';
 })
 export class ResultsPage {
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  session = inject(SessionService); private api = inject(LabApi); private sync = inject(LiveSync); live = this.session.live;
+  constructor() { if (this.live) this.sync.loadLab().catch(() => this.toast.err('Could not load lab orders from the server')); }
   id = input<string>(''); tab = signal<'todo' | 'verify'>('todo'); rev = signal(0);
   todo = computed(() => { this.store.rev(); return this.store.db.labOrders.filter(o => o.status === 'Processing' || o.status === 'Sample collected'); });
   verify = computed(() => { this.store.rev(); return this.store.db.labOrders.filter(o => o.status === 'Result ready'); });
@@ -84,9 +91,18 @@ export class ResultsPage {
     o.testIds.forEach(tid => { const t = this.store.test(tid); if (!t) return; o.results[tid] = o.results[tid] || {}; t.params.forEach(p => { if (o.results[tid][p.name] == null) { const span = p.high - p.low; o.results[tid][p.name] = +(p.low + span * (0.2 + Math.random() * 0.75)).toFixed(span < 10 ? 1 : 0); } }); });
     this.rev.update(x => x + 1); this.toast.info('Values imported from the analyser interface (simulated). Check before saving.');
   }
-  save(o: LabOrder) { this.store.saveResults(o); this.rev.update(x => x + 1); this.toast.ok('Results saved. Waiting for pathologist verification.'); this.tab.set('verify'); }
-  reopen(o: LabOrder) { this.store.setLabStatus(o, 'Processing'); this.rev.update(x => x + 1); }
-  verifyIt(o: LabOrder) {
+  save(o: LabOrder) {
+    if (this.live) { this.sync.labAction(() => this.api.saveResults(o as LiveLabOrder, true), () => 'Results saved. Waiting for pathologist verification.').then(r => { this.rev.update(x => x + 1); if (r) this.tab.set('verify'); }); return; }
+    this.store.saveResults(o); this.rev.update(x => x + 1); this.toast.ok('Results saved. Waiting for pathologist verification.'); this.tab.set('verify'); }
+  reopen(o: LabOrder) { if (this.live) { this.sync.labAction(() => this.api.reopen(o.id), () => 'Results reopened for editing').then(() => this.rev.update(x => x + 1)); return; } this.store.setLabStatus(o, 'Processing'); this.rev.update(x => x + 1); }
+  async verifyIt(o: LabOrder) {
+    if (this.live) {
+      try {
+        const r = await this.api.verify(o.id); this.sync.putOrder(r.order); this.rev.update(x => x + 1);
+        if (r.criticals.length) this.toast.warn(`Verified. Critical values for ${r.criticals.map(x => x.param).join(', ')}: inform ${r.order.doctorName ?? 'the doctor'} now.`); else this.toast.ok('Verified. Report is ready to deliver.');
+      } catch (e) { this.toast.err(apiMessage(e, 'Could not verify these results')); }
+      return;
+    }
     const c = this.store.verifyLab(o, 'Dr. Meghana Rao (Pathologist)'); this.rev.update(x => x + 1);
     if (c.length) this.toast.warn(`Verified. Critical alert sent to ${this.store.dname(o.doctorId)} for ${c.map(x => x.param).join(', ')}.`); else this.toast.ok('Verified. Report is ready to deliver.');
   }
