@@ -16,7 +16,8 @@ import java.util.List;
 public final class ConsultationInput {
   private ConsultationInput() {}
 
-  public record Open(@NotBlank String patientId, @NotBlank String doctorId, String appointmentId) {}
+  /** doctorId may be left out by a doctor whose account is linked to a doctor profile. */
+  public record Open(@NotBlank String patientId, String doctorId, String appointmentId) {}
 
   public record Vitals(
       @Pattern(regexp = "^$|^\\d{2,3}/\\d{2,3}$", message = "Blood pressure looks like 120/80") String bp,

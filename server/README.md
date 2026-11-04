@@ -67,7 +67,7 @@ read consultations; pharmacists can also read prescriptions; billing gets the co
 | Method and path | What |
 | --- | --- |
 | `GET /api/clinical/consultations?patientId=&doctorId=&status=&date=` | List, newest first (vitals history left out). |
-| `POST /api/clinical/consultations` `{patientId, doctorId, appointmentId?}` | Opens the patient's draft with this doctor, or starts one prefilled from the patient record and the last height and weight. |
+| `POST /api/clinical/consultations` `{patientId, doctorId?, appointmentId?}` (doctorId defaults to the signed-in doctor) | Opens the patient's draft with this doctor, or starts one prefilled from the patient record and the last height and weight. |
 | `GET /api/clinical/consultations/{id}` | `{consultation, prescription, alerts}`. |
 | `PUT /api/clinical/consultations/{id}` | Saves a draft: notes, `dx[]`, `vitals` (a new reading when they changed) and `prescription {items, notes}` as the linked draft prescription. Needs `version`. |
 | `POST /api/clinical/consultations/{id}/vitals` | Adds a vitals reading (doctor or nurse). |

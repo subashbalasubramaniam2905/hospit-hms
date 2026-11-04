@@ -218,6 +218,10 @@ class ClinicalTest {
          {"name":"Augmentin","generic":"Amoxicillin + Clavulanic acid"}]}""".formatted(patientId)));
     assertThat(alerts.findValuesAsText("kind")).contains("Interaction", "Allergy");
 
+    // A linked doctor can open a consultation without naming themselves; an admin without a profile cannot.
+    var mine = ok(call(post("/api/clinical/consultations"), doctor2, "{\"patientId\":\"" + patientId + "\"}"));
+    assertThat(mine.get("consultation").get("doctorId").asText()).isEqualTo("CL-D2");
+
     // An empty draft cannot be signed; a doctor cannot prescribe as someone else.
     var empty = ok(call(post("/api/clinical/prescriptions"), doctor2,
         "{\"patientId\":\"" + patientId + "\",\"doctorId\":\"CL-D2\",\"items\":[]}"));

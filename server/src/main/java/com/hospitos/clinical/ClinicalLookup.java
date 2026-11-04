@@ -56,13 +56,20 @@ public class ClinicalLookup {
    */
   public DoctorFacts actingDoctor(String doctorId) {
     var me = CurrentUser.get();
+    if (doctorId == null || doctorId.isBlank())
+      doctorId = myDoctorId().orElseThrow(() -> new ApiException(400, "Choose the doctor for this record"));
     var d = doctor(doctorId);
     if (!me.canSee(d.branchId())) throw new ApiException(403, "You cannot work in this doctor's branch");
     if ("doctor".equals(me.role())) {
-      var mine = db.sql("select id from doctor where user_id = ?").param(me.id()).query(String.class).optional();
+      var mine = myDoctorId();
       if (mine.isPresent() && !mine.get().equals(d.id())) throw new ApiException(403, "You can only write records as yourself");
     }
     return d;
+  }
+
+  /** The doctor profile linked to the signed-in account, if any. */
+  public java.util.Optional<String> myDoctorId() {
+    return db.sql("select id from doctor where user_id = ?").param(CurrentUser.get().id()).query(String.class).optional();
   }
 
   private static List<String> arr(Array a) throws SQLException {
