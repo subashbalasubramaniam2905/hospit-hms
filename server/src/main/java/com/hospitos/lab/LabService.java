@@ -138,7 +138,7 @@ public class LabService {
     var missing = new ArrayList<String>();
     for (String tid : o.testIds()) {
       var t = catalogue.get(tid);
-      Map<String, BigDecimal> values = in.results().getOrDefault(tid, Map.of());
+      Map<String, BigDecimal> values = in.results().get(tid) == null ? Map.of() : in.results().get(tid);
       var names = t.params().stream().map(Param::name).collect(Collectors.toSet());
       for (String k : values.keySet()) if (!names.contains(k)) throw new ApiException(400, t.name() + " has no parameter " + k);
       for (var p : t.params()) {

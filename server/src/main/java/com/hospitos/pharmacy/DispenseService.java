@@ -135,7 +135,7 @@ public class DispenseService {
     for (var p : pending) {
       var m = repo.medicine(p.medicineId()).orElseThrow();
       int stock = repo.stock(m.id(), rx.branchId());
-      if (stock < m.reorder() && low.stream().noneMatch(x -> x.medicineId().equals(m.id())))
+      if (stock <= m.reorder() && low.stream().noneMatch(x -> x.medicineId().equals(m.id())))
         low.add(new LowStock(m.id(), m.label(), stock, m.reorder()));
     }
     audit.logForBranch(rx.branchId(), "Dispensed", "Prescription", rx.id().toString(), (partial ? "Partly dispensed " : "Dispensed ")
