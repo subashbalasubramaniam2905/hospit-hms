@@ -1,4 +1,6 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { LIVE } from '../api/api-config';
+import { PatientsApi } from '../api/patients-api';
 import { buildSeed, isoDay, pad, SeedData, TODAY } from '../data/seed';
 import {
   Admission, Alert, Appointment, ApptStatus, Bed, Channel, Claim, ClaimStatus, Consultation, ERCase, ImagingOrder, ImgStatus, Invoice, InvoiceItem,
@@ -18,9 +20,33 @@ export class StoreService {
   readonly rev = signal(0);
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private patientsApi = inject(PatientsApi);
+  /** Live mode: false until the patient list has been loaded from the server. */
+  readonly patientsReady = signal(!LIVE);
+
   constructor() {
     this.db = this.load();
+    // Live mode: patients come only from the server; never show or keep fictional ones.
+    if (LIVE) this.db.patients = [];
   }
+
+  /** Live mode: replaces the in-memory patient list with the records this user may see. */
+  async syncPatients() {
+    if (!LIVE) return;
+    const list = await this.patientsApi.search('', 500);
+    this.db.patients = list.map(p => ({ ...p, documents: this.patient(p.id)?.documents ?? [] }));
+    this.patientsReady.set(true);
+    this.changed();
+  }
+  /** Live mode: stores a record returned by the server, keeping local-only extras such as documents. */
+  upsertPatient(p: Patient) {
+    const i = this.db.patients.findIndex(x => x.id === p.id);
+    const merged = { ...p, documents: i >= 0 ? this.db.patients[i].documents : p.documents ?? [] };
+    if (i >= 0) this.db.patients[i] = merged; else this.db.patients.unshift(merged);
+    this.changed();
+    return merged;
+  }
+  clearLivePatients() { if (LIVE) { this.db.patients = []; this.patientsReady.set(false); this.changed(); } }
 
   private load(): SeedData {
     try {
@@ -36,7 +62,8 @@ export class StoreService {
   changed() {
     this.rev.update(v => v + 1);
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(this.db)); } catch { /* ignore */ } }, 250);
+    // Real patient records are never written to browser storage.
+    this.saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(LIVE ? { ...this.db, patients: [] } : this.db)); } catch { /* ignore */ } }, 250);
   }
 
   reset() { this.db = buildSeed(); try { localStorage.removeItem(KEY); } catch { /* ignore */ } this.changed(); }

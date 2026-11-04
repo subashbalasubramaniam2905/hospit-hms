@@ -1,3 +1,4 @@
+import { LIVE } from '../../core/api/api-config';
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, Validators } from '@angular/forms';
@@ -162,6 +163,8 @@ export class KioskPage {
   }
   private load(docId: string) { return this.store.db.queue.filter(q => q.doctorId === docId && q.step < 5).length; }
   register() {
+    // The kiosk has no staff sign-in, so it cannot create real records yet.
+    if (LIVE) { this.toast.info('New patients: please register at the front desk. Staff will give you your UHID.'); return; }
     const v = this.reg.getRawValue();
     const p = this.store.addPatient({ name: v.name.trim(), mobile: '+91 ' + v.mobile.slice(0, 5) + ' ' + v.mobile.slice(5), dob: v.dob, gender: v.gender as Patient['gender'], abha: v.abha || undefined, address: { line: '', city: v.city || 'Udumalpet', state: 'Tamil Nadu', pin: '' }, blood: 'Unknown', allergies: [], conditions: [], history: '', emergency: { name: '', relation: '', phone: '' }, consent: 'Given', primaryDoctorId: '' });
     this.toast.ok(`Registered as ${p.id}`); this.found.set(p); this.walkId = p.id; this.step.set('walkin');

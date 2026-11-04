@@ -2,6 +2,8 @@
 
 HospitOS is a review prototype. It is **not production-ready** and must not be used with real patients.
 
+> **Live mode (in progress).** With `apiUrl` set in `config.js`, sign-in, staff accounts, patients and the audit trail run on the HospitOS server (`server/`): real authentication, server-side role and branch checks, and an append-only audit log. The points below still apply to every other module and to demo mode. Before real patient data goes in, a pilot review is still needed (hosting in India, backups, penetration test, DPDP consent process).
+
 ## Data and storage
 - All data is fictional and generated in the browser (`core/data/seed.ts`).
 - Changes live only in this browser's LocalStorage. They are not shared between users or devices and are lost if storage is cleared.

@@ -27,7 +27,16 @@ npm run build:demo   # output in dist/hospit-hms/browser
 
 Every push to `main` builds the prototype and publishes it with `.github/workflows/pages.yml`. One-time setup: in the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**. The site appears at `https://<user>.github.io/hospit-hms/`. A Pages site is public, so keep it to fictional data.
 
-## Signing in
+## Demo mode and live mode
+
+The app runs in one of two modes, set in `public/config.js` (served as `config.js` next to `index.html`, editable after deploy without a rebuild):
+
+- **Demo mode** (`apiUrl: ''`, the default, and what GitHub Pages serves): fictional data in this browser, role picker, everything below.
+- **Live mode** (`apiUrl: 'https://your-api-host'`): real staff sign-in against the HospitOS server in `server/`, forced change of temporary passwords, and patients (search, registration with duplicate check, profile, edits) stored on the server with every view and change audited. Real patient records are never written to browser storage. Other modules still show sample data until they are connected. The kiosk does not register patients in live mode.
+
+To try live mode locally: start the server (see `server/README.md`), set `CORS_ORIGINS=http://localhost:4200`, set `apiUrl: 'http://localhost:8080'` in `public/config.js`, and run `npm start`. Sign in with the `ADMIN_EMAIL` account and create staff with `POST /api/users`.
+
+## Signing in (demo mode)
 
 The login screen is pre-filled (any valid email and a password of 6 or more characters works). After signing in, pick one of 12 roles. Each role gets its own dashboard and sidebar:
 
