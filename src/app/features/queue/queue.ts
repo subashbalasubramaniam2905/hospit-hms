@@ -1,9 +1,11 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { JOURNEY, QueueEntry } from '../../core/models';
+import { FrontDeskService } from '../../core/services/front-desk.service';
+import { apiMessage } from '../../core/api/appointments-api';
 
 const LANE_TONE = ['--blue', '--amber', '--pink', '--violet', '--blue', '--pri', '--green'];
 
@@ -59,8 +61,8 @@ const LANE_TONE = ['--blue', '--amber', '--pink', '--violet', '--blue', '--pri',
         <section class="lane" [style.--c]="'var(' + tones[i] + ')'" [class.over]="over() === i" (dragover)="$event.preventDefault(); over.set(i)" (dragleave)="over.set(-1)" (drop)="drop(i)" [attr.aria-label]="step">
           <div class="lane-h"><b>{{ step }}</b><span class="n">{{ lane(i).length }}</span></div>
           <div class="lane-b">
-            @for (e of lane(i); track e.token) {
-              <button class="qc" [class.late]="e.since > delay && i < 6" [class.em]="e.emergency" draggable="true" (dragstart)="drag = e.token" (click)="sel.set(e.token)">
+            @for (e of lane(i); track e.id ?? e.token) {
+              <button class="qc" [class.late]="e.since > delay && i < 6" [class.em]="e.emergency" draggable="true" (dragstart)="drag = key(e)" (click)="sel.set(key(e))">
                 <div class="top"><span class="tok">{{ e.token }}</span>@if (e.priority) {<lucide-icon name="star" [size]="13" style="color:var(--amber)"></lucide-icon>}@if (e.emergency) {<span class="st r" style="padding:1px 6px">ER</span>}
                   <span class="spacer"></span><span class="wait" [class.hot]="e.since > delay && i < 6">@if (i < 6) {{{ e.since }}m} @else {<lucide-icon name="check" [size]="13"></lucide-icon>}</span></div>
                 <div class="nm">{{ store.pname(e.patientId) }}</div>
@@ -93,7 +95,7 @@ const LANE_TONE = ['--blue', '--amber', '--pink', '--violet', '--blue', '--pri',
           <div class="field"><label>Reassign doctor</label><select class="inp" [ngModel]="e.doctorId" (ngModelChange)="reassign(e, $event)">@for (d of store.db.doctors; track d.id) {<option [value]="d.id" [disabled]="d.status === 'On leave'">{{ d.name }}{{ d.status === 'On leave' ? ' (on leave)' : '' }}</option>}</select></div>
         </div>
         <div class="row">
-          <mat-slide-toggle [checked]="e.priority" (change)="togglePrio(e)">Priority (senior, pregnancy, disability)</mat-slide-toggle>
+          <mat-slide-toggle [checked]="e.priority" (change)="togglePrio(e)" [disabled]="busy()">Priority (senior, pregnancy, disability)</mat-slide-toggle>
         </div>
         <div class="row">
           <button class="btn ghost sm" (click)="announce(e)"><lucide-icon name="bell-ring" [size]="15"></lucide-icon>Call to counter</button>
@@ -110,9 +112,23 @@ const LANE_TONE = ['--blue', '--amber', '--pink', '--violet', '--blue', '--pri',
   </cf-drawer>`
 })
 export class QueuePage {
-  store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  store = inject(StoreService); fd = inject(FrontDeskService); toast = inject(ToastService); router = inject(Router);
   journey = JOURNEY; tones = LANE_TONE; delay = this.store.db.config.queueRules.delayAlertMin;
-  q = signal(''); dept = signal(''); doc = signal(''); onlyLate = signal(false); sel = signal(''); over = signal(-1); drag = '';
+  q = signal(''); dept = signal(''); doc = signal(''); onlyLate = signal(false); sel = signal(''); over = signal(-1); drag = ''; busy = signal(false);
+
+  constructor() {
+    if (this.fd.live) {
+      const load = () => this.fd.loadQueue().catch(e => this.toast.err(apiMessage(e, 'Could not load the queue')));
+      load();
+      // Other desks move patients too, so refresh every 30 seconds while this screen is open.
+      const t = setInterval(load, 30000);
+      inject(DestroyRef).onDestroy(() => clearInterval(t));
+    }
+  }
+
+  /** Tokens repeat across days in the demo data, so live entries are keyed by their id. */
+  key(e: QueueEntry) { return e.id != null ? String(e.id) : e.token; }
+  private byKey(k: string) { return this.store.db.queue.find(x => this.key(x) === k); }
 
   private all = computed(() => { this.store.rev(); return [...this.store.db.queue]; });
   private shown = computed(() => {
@@ -128,22 +144,28 @@ export class QueuePage {
   longest = computed(() => this.late().reduce((m, e) => Math.max(m, e.since), 0));
   avgWait = computed(() => { const a = this.active(); return a.length ? Math.round(a.reduce((t, e) => t + e.since, 0) / a.length) : 0; });
   prio = computed(() => this.active().filter(e => e.priority || e.emergency).length);
-  entry = computed(() => { this.store.rev(); return this.store.db.queue.find(e => e.token === this.sel()); });
+  entry = computed(() => { this.store.rev(); return this.byKey(this.sel()); });
 
-  next(e: QueueEntry) { this.store.moveQueue(e.token); this.toast.ok(`${e.token} moved to ${JOURNEY[e.step]}`); }
-  jump(e: QueueEntry, s: number) { if (s === e.step) return; this.store.moveQueue(e.token, s); this.toast.ok(`${e.token} moved to ${JOURNEY[s]}`); }
-  drop(i: number) { this.over.set(-1); const e = this.store.db.queue.find(x => x.token === this.drag); this.drag = ''; if (e && e.step !== i) this.jump(e, i); }
-  reassign(e: QueueEntry, id: string) { if (id === e.doctorId) return; e.doctorId = id; e.deptId = this.store.doctor(id)!.deptId; this.store.log('Updated', 'Queue', `${e.token} reassigned to ${this.store.dname(id)}`); this.store.changed(); this.toast.ok(`${e.token} reassigned to ${this.store.dname(id)}`); }
-  togglePrio(e: QueueEntry) { e.priority = !e.priority; this.store.changed(); this.toast.info(e.priority ? `${e.token} marked as priority` : `${e.token} priority removed`); }
+  /** Runs one queue change at a time and reports the server's reason when it is refused. */
+  private async act(what: string, fn: () => Promise<unknown>) {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try { await fn(); } catch (e) { this.toast.err(apiMessage(e, `Could not ${what}`)); if (this.fd.live) this.fd.loadQueue().catch(() => {}); }
+    finally { this.busy.set(false); }
+  }
+
+  next(e: QueueEntry) { const to = Math.min(6, e.step + 1); this.act('move the patient', async () => { await this.fd.move(e); this.toast.ok(`${e.token} moved to ${JOURNEY[to]}`); }); }
+  jump(e: QueueEntry, s: number) { if (s === e.step) return; this.act('move the patient', async () => { await this.fd.move(e, s); this.toast.ok(`${e.token} moved to ${JOURNEY[s]}`); }); }
+  drop(i: number) { this.over.set(-1); const e = this.byKey(this.drag); this.drag = ''; if (e && e.step !== i) this.jump(e, i); }
+  reassign(e: QueueEntry, id: string) { if (id === e.doctorId) return; this.act('reassign the doctor', async () => { await this.fd.reassign(e, id); this.toast.ok(`${e.token} reassigned to ${this.store.dname(id)}`); }); }
+  togglePrio(e: QueueEntry) { const v = !e.priority; this.act('change priority', async () => { await this.fd.setPriority(e, v); this.toast.info(v ? `${e.token} marked as priority` : `${e.token} priority removed`); }); }
   announce(e: QueueEntry) { this.toast.info(`Announcing "Token ${e.token}, please come to ${JOURNEY[e.step]}" on the display (simulated)`); }
   callNext() {
-    const w = this.active().filter(e => e.step === 2).sort((a, b) => (+b.emergency - +a.emergency) || (+b.priority - +a.priority) || (b.since - a.since))[0];
-    if (!w) { this.toast.info('No one is waiting at triage right now'); return; }
-    this.store.moveQueue(w.token, 3); this.toast.ok(`Token ${w.token} (${this.store.pname(w.patientId)}) called to ${this.store.dname(w.doctorId)}'s room`);
+    this.act('call the next token', async () => {
+      const w = await this.fd.callNext({ deptId: this.dept() || undefined, doctorId: this.doc() || undefined });
+      if (!w) { this.toast.info('No one is waiting at triage right now'); return; }
+      this.toast.ok(`Token ${w.token} (${this.store.pname(w.patientId)}) called to ${this.store.dname(w.doctorId)}'s room`);
+    });
   }
-  remove(e: QueueEntry) {
-    this.store.db.queue = this.store.db.queue.filter(x => x.token !== e.token);
-    const a = this.store.db.appointments.find(x => x.id === e.appointmentId); if (a) a.status = 'No-show';
-    this.store.log('Updated', 'Queue', `${e.token} left without being seen`); this.store.changed(); this.sel.set(''); this.toast.warn(`${e.token} removed from the queue`);
-  }
+  remove(e: QueueEntry) { this.act('remove the patient', async () => { await this.fd.left(e); this.sel.set(''); this.toast.warn(`${e.token} removed from the queue`); }); }
 }

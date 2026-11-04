@@ -69,7 +69,7 @@ export class StoreService {
     return merged;
   }
   /** Live mode: forgets everything loaded for the previous user (called on sign-out and session expiry). */
-  clearLivePatients() { if (LIVE) { this.db = buildSeed(); this.dropDemoPatientData(); this.patientsReady.set(false); this.changed(); } }
+  clearLivePatients() { if (LIVE) { this.db = buildSeed(); this.dropDemoPatientData(); this.extraNames.clear(); this.patientsReady.set(false); this.changed(); } }
 
   private load(): SeedData {
     try {
@@ -111,7 +111,9 @@ export class StoreService {
   admissionFor(patientId: string) { return this.db.admissions.find(a => a.patientId === patientId && a.status !== 'Discharged'); }
   codes(ids: string[]) { return ids.map(t => this.test(t)?.code ?? t).join(', '); }
   names(ids: string[]) { return ids.map(t => this.test(t)?.name ?? t).join(', '); }
-  pname(id?: string) { return this.patient(id)?.name ?? 'Unknown patient'; }
+  /** Names of patients that are known from the server but not held in this store (live mode). */
+  readonly extraNames = new Map<string, string>();
+  pname(id?: string) { return this.patient(id)?.name ?? (id && this.extraNames.get(id)) ?? 'Unknown patient'; }
   dname(id?: string) { return this.doctor(id)?.name ?? '—'; }
 
   age(dob: string) {
