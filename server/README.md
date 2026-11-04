@@ -136,3 +136,34 @@ Invoices are never edited once issued: cancel (admin, nothing paid, no open clai
 
 Other modules raise invoices in-process through `com.hospitos.billing.api.BillingApi` (`createInvoice`, `recordPayment`,
 `isBilled`); the call joins the caller's transaction.
+
+## API (pharmacy)
+
+Stock is held per branch. Reads use the signed-in user's first branch unless `?branchId=` names another branch they can see.
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/pharmacy/medicines?q=&branchId=`, `GET /api/pharmacy/medicines/{id}` | pharmacist, doctor, nurse, inventory, admins | Formulary with branch stock and batches, earliest expiry first. |
+| `GET /api/pharmacy/medicines/{id}/fefo?qty=` | same | Which batches a quantity would come from. Expired batches are never used. |
+| `POST /api/pharmacy/medicines`, `PUT /api/pharmacy/medicines/{id}` | pharmacist, admins | Add or edit a medicine (`version` required on update). Ids are `M001`... |
+| `POST /api/pharmacy/medicines/{id}/batches` | pharmacist, admins | Receive stock into a batch. |
+| `POST /api/pharmacy/stock/adjust`, `POST /api/pharmacy/stock/transfer` | pharmacist, admins | Count corrections, damage, returns to supplier, and first-expiry-first-out transfers between branches. |
+| `GET /api/pharmacy/stock/moves`, `GET /api/pharmacy/suppliers` | pharmacy readers | Stock movement ledger and suppliers. |
+| `POST /api/pharmacy/dispense` | pharmacist, admins | `{prescriptionId, payMode, counselled, lines:[{medicineId, qty, substitutedFor?}]}`. Takes stock FEFO, raises and settles a pharmacy invoice through billing, and marks the prescription Dispensed or Partially dispensed, all in one transaction. A substitute must share the generic. |
+| `GET /api/pharmacy/prescriptions/{id}/remaining`, `GET /api/pharmacy/dispenses?from=&to=` | pharmacist, admins | What is left to hand out on a prescription; dispenses by day. |
+
+`V41__pharmacy_sample_stock.sql` loads fictional stock for the demo branches. Remove its rows before going live.
+
+## API (laboratory)
+
+Order flow: Awaiting sample → Sample collected → Processing → Result ready → Verified → Delivered. A rejected sample goes back to Awaiting sample; Result ready can be reopened until it is verified.
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/lab/tests` | lab, clinical, front desk, billing | Test catalogue with reference and critical ranges. |
+| `GET /api/lab/orders?status=&patientId=&priority=&q=&from=&to=`, `GET /api/lab/orders/{id}`, `GET /api/lab/scan/{sampleOrOrderId}` | same | Orders in the user's branches. Opening one is audited. |
+| `POST /api/lab/orders` | doctor, nurse, receptionist, lab-tech, admins | `{patientId, doctorId, testIds, priority, bill}`. Ids are `LO05200`...; with `bill` (default true) a lab invoice is raised through billing. |
+| `POST /api/lab/orders/{id}/collect`, `/reject`, `/receive` | lab-tech (nurses may collect), admins | Sample ids are `SMP089000`... |
+| `PUT /api/lab/orders/{id}/results` | lab-tech, admins | `{results:{testId:{param:value}}, comments, version, submit}`. `submit` needs every value and moves to Result ready; flags N/L/H/C are worked out from the ranges. |
+| `POST /api/lab/orders/{id}/reopen`, `/verify` | lab-tech, doctor, admins | Verify returns the critical values, which are also written to the audit trail. |
+| `POST /api/lab/orders/{id}/deliver`, `GET /api/lab/orders/{id}/report` | lab-tech, admins / lab readers | Report includes each parameter's flag and the patient's previous verified value. |
