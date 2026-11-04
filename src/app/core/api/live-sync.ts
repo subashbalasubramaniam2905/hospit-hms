@@ -23,8 +23,9 @@ export class LiveSync {
   private pharmacyBranch = '';
 
   constructor() {
-    // Never show fictional stock or lab orders next to real data.
-    if (LIVE) { this.store.db.medicines = []; this.store.db.labOrders = []; }
+    // Never show fictional lab orders next to real ones. The demo formulary uses the same ids as the server's,
+    // so it stays as reference data until the branch stock has loaded.
+    if (LIVE) this.store.db.labOrders = [];
   }
 
   /** Formulary with the stock of one branch. */
