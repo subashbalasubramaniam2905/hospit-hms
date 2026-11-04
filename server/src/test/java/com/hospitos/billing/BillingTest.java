@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -23,6 +24,8 @@ import org.springframework.test.web.servlet.ResultActions;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Import(CleanDatabase.class)
+// Billing creates patients and users; close the context afterwards so the next test class starts from a clean schema.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class BillingTest {
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper json;
@@ -82,7 +85,7 @@ class BillingTest {
           {"description":"Paracetamol 650 strip","category":"PHARMACY","qty":2,"rate":"30.50"},
           {"tariffCode":"OTH-CERT","qty":1}]}""".formatted(pid)).andExpect(status().isCreated()));
     // 500 + 350 exempt; pharmacy 61 @12%; certificate 300 @18%; all less 5%.
-    assertThat(inv.get("number").asText()).matches("INV-\\d{4}-000001");
+    assertThat(inv.get("number").asText()).matches("INV-\\d{4}-\\d{6}");
     assertThat(inv.get("gstin").asText()).isEqualTo("33AAACH0000A1ZY");
     assertThat(inv.get("subtotal").decimalValue()).isEqualByComparingTo("1211");
     assertThat(inv.get("discountAmount").decimalValue()).isEqualByComparingTo("60.55");
@@ -101,7 +104,7 @@ class BillingTest {
         .andExpect(status().isCreated()));
     assertThat(after.get("status").asText()).isEqualTo("PARTIALLY_PAID");
     assertThat(after.get("due").decimalValue()).isEqualByComparingTo("209");
-    assertThat(after.get("payments").get(0).get("receiptNumber").asText()).matches("RCT-\\d{4}-000001");
+    assertThat(after.get("payments").get(0).get("receiptNumber").asText()).matches("RCT-\\d{4}-\\d{6}");
     after = body(send(post("/api/billing/invoices/" + id + "/payments"), cashier, "{\"mode\":\"CASH\",\"amount\":209}"));
     assertThat(after.get("status").asText()).isEqualTo("PAID");
 
