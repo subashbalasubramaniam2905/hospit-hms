@@ -57,7 +57,7 @@ public class AppointmentService {
         if (from.plusDays(400).isBefore(to)) throw Errors.bad("Ask for at most 400 days at a time.");
         List<String> scope = dir.scope(branch);
         return db.sql("""
-                select * from appointment
+                select appointment.*, (select name from patient where patient.id = appointment.patient_id) as patient_name from appointment
                  where (cardinality(cast(:branches as text[])) = 0 or branch_id = any(cast(:branches as text[])))
                    and appt_date between :from and :to
                    and (cast(:doctor as text) is null or doctor_id = :doctor)
@@ -70,13 +70,13 @@ public class AppointmentService {
     }
 
     public AppointmentView get(String id) {
-        Optional<Row> r = db.sql("select * from appointment where id = :id").param("id", id).query(AppointmentService::row).optional();
+        Optional<Row> r = db.sql("select appointment.*, (select name from patient where patient.id = appointment.patient_id) as patient_name from appointment where id = :id").param("id", id).query(AppointmentService::row).optional();
         if (r.isEmpty() || !dir.canSee(r.get().branchId)) throw Errors.notFound("Appointment " + id);
         return r.get().view;
     }
 
     private Row lock(String id) {
-        Optional<Row> r = db.sql("select * from appointment where id = :id for update").param("id", id).query(AppointmentService::row).optional();
+        Optional<Row> r = db.sql("select appointment.*, (select name from patient where patient.id = appointment.patient_id) as patient_name from appointment where id = :id for update").param("id", id).query(AppointmentService::row).optional();
         if (r.isEmpty() || !dir.canSee(r.get().branchId)) throw Errors.notFound("Appointment " + id);
         return r.get();
     }
@@ -232,7 +232,7 @@ public class AppointmentService {
                 .param("d", d.id()).param("date", r.date()).param("reason", r.reason() == null ? "" : r.reason().trim())
                 .param("by", dir.userId()).update();
         dir.audit(d.branchId(), "Created", "Doctor leave", d.id(), d.name() + " on " + r.date());
-        return db.sql("select * from appointment where doctor_id = :d and appt_date = :date and status in ('Scheduled','Confirmed') order by start_time")
+        return db.sql("select appointment.*, (select name from patient where patient.id = appointment.patient_id) as patient_name from appointment where doctor_id = :d and appt_date = :date and status in ('Scheduled','Confirmed') order by start_time")
                 .param("d", d.id()).param("date", r.date()).query(AppointmentService::map).list();
     }
 
@@ -265,7 +265,7 @@ public class AppointmentService {
             // The exclusion constraint caught a booking that slipped past the check above.
             throw Errors.conflict(d.name() + " was just booked at " + t.format(HM) + ". Pick another slot.");
         }
-        return db.sql("select * from appointment where id = :id").param("id", id).query(AppointmentService::map).single();
+        return db.sql("select appointment.*, (select name from patient where patient.id = appointment.patient_id) as patient_name from appointment where id = :id").param("id", id).query(AppointmentService::map).single();
     }
 
     /** Serialises bookings for one doctor-day so check-then-insert can't race. */
@@ -329,7 +329,7 @@ public class AppointmentService {
     }
 
     static AppointmentView map(ResultSet rs, int i) throws SQLException {
-        return new AppointmentView(rs.getString("id"), rs.getString("patient_id"), rs.getString("doctor_id"), rs.getString("dept_id"),
+        return new AppointmentView(rs.getString("id"), rs.getString("patient_id"), rs.getString("patient_name"), rs.getString("doctor_id"), rs.getString("dept_id"),
                 rs.getObject("appt_date", LocalDate.class), rs.getObject("start_time", LocalTime.class).format(HM), rs.getInt("duration_min"),
                 rs.getString("type"), rs.getString("status"), rs.getString("room"), rs.getString("token"), rs.getString("notes"),
                 rs.getString("recurring"), rs.getBoolean("reminder_sent"));

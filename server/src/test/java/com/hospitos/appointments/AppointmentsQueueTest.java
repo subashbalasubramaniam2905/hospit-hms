@@ -205,6 +205,7 @@ class AppointmentsQueueTest {
         JsonNode q = body(mvc.perform(get("/api/queue").header("Authorization", desk))).get(0);
         long id = q.get("id").asLong();
         assertThat(q.get("token").asText()).isEqualTo("G-001");
+        assertThat(q.get("patientName").asText()).isEqualTo("Lakshmi Iyer");
         assertThat(q.get("step").asInt()).isEqualTo(1);
         assertThat(q.get("arrivedAt").asText()).isEqualTo("09:30");
 

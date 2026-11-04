@@ -51,7 +51,7 @@ public class QueueService {
         LocalDate d = day == null ? today() : day;
         String[] branches = dir.scope(branch).toArray(String[]::new);
         List<Row> rows = db.sql("""
-                select * from queue_entry
+                select queue_entry.*, (select name from patient where patient.id = queue_entry.patient_id) as patient_name from queue_entry
                  where (cardinality(cast(:b as text[])) = 0 or branch_id = any(cast(:b as text[])))
                    and visit_date = :d and state <> 'Left' order by arrived_at, id""")
                 .param("b", branches).param("d", d).query(QueueService::row).list();
@@ -83,7 +83,7 @@ public class QueueService {
      */
     @Transactional
     public QueueView checkIn(AppointmentView a, String branchId) {
-        Optional<Row> existing = db.sql("select * from queue_entry where appointment_id = :a for update").param("a", a.id())
+        Optional<Row> existing = db.sql("select queue_entry.*, (select name from patient where patient.id = queue_entry.patient_id) as patient_name from queue_entry where appointment_id = :a for update").param("a", a.id())
                 .query(QueueService::row).optional();
         if (existing.isPresent() && !"Left".equals(existing.get().state)) return view(existing.get(), history(existing.get().id));
         if (!a.date().equals(today())) throw Errors.conflict("Only today's appointments can be checked in.");
@@ -134,7 +134,7 @@ public class QueueService {
     public Optional<QueueView> callNext(String branch, String deptId, String doctorId) {
         String[] branches = dir.scope(branch).toArray(String[]::new);
         Optional<Row> next = db.sql("""
-                select * from queue_entry
+                select queue_entry.*, (select name from patient where patient.id = queue_entry.patient_id) as patient_name from queue_entry
                  where (cardinality(cast(:b as text[])) = 0 or branch_id = any(cast(:b as text[])))
                    and visit_date = :d and state = 'Active' and step = 2
                    and (cast(:dept as text) is null or dept_id = :dept) and (cast(:doc as text) is null or doctor_id = :doc)
@@ -199,7 +199,7 @@ public class QueueService {
 
     /** Called when an appointment is cancelled or marked no-show from the calendar. */
     void leaveFor(String appointmentId) {
-        db.sql("select * from queue_entry where appointment_id = :a and state <> 'Left' for update").param("a", appointmentId)
+        db.sql("select queue_entry.*, (select name from patient where patient.id = queue_entry.patient_id) as patient_name from queue_entry where appointment_id = :a and state <> 'Left' for update").param("a", appointmentId)
                 .query(QueueService::row).optional().ifPresent(this::markLeft);
     }
 
@@ -230,7 +230,7 @@ public class QueueService {
     }
 
     private Row find(long id, boolean forUpdate) {
-        Optional<Row> r = db.sql("select * from queue_entry where id = :id" + (forUpdate ? " for update" : ""))
+        Optional<Row> r = db.sql("select queue_entry.*, (select name from patient where patient.id = queue_entry.patient_id) as patient_name from queue_entry where id = :id" + (forUpdate ? " for update" : ""))
                 .param("id", id).query(QueueService::row).optional();
         if (r.isEmpty() || !dir.canSee(r.get().branchId)) throw Errors.notFound("Queue entry " + id);
         return r.get();
@@ -242,16 +242,16 @@ public class QueueService {
 
     private QueueView view(Row r, List<HistoryItem> history) {
         long since = Math.max(0, Duration.between(r.stepSince, now()).toMinutes());
-        return new QueueView(r.id, r.token, r.patientId, r.doctorId, r.deptId, r.step, since, hm(r.arrivedAt), r.priority, r.emergency,
+        return new QueueView(r.id, r.token, r.patientId, r.patientName, r.doctorId, r.deptId, r.step, since, hm(r.arrivedAt), r.priority, r.emergency,
                 r.appointmentId, history);
     }
 
-    private record Row(long id, String branchId, String token, String appointmentId, String patientId, String doctorId, String deptId,
+    private record Row(long id, String branchId, String token, String appointmentId, String patientId, String patientName, String doctorId, String deptId,
                        int step, OffsetDateTime stepSince, OffsetDateTime arrivedAt, boolean priority, boolean emergency, String state) {}
 
     private static Row row(ResultSet rs, int i) throws SQLException {
         return new Row(rs.getLong("id"), rs.getString("branch_id"), rs.getString("token"), rs.getString("appointment_id"),
-                rs.getString("patient_id"), rs.getString("doctor_id"), rs.getString("dept_id"), rs.getInt("step"),
+                rs.getString("patient_id"), rs.getString("patient_name"), rs.getString("doctor_id"), rs.getString("dept_id"), rs.getInt("step"),
                 rs.getObject("step_since", OffsetDateTime.class), rs.getObject("arrived_at", OffsetDateTime.class), rs.getBoolean("priority"),
                 rs.getBoolean("emergency"), rs.getString("state"));
     }

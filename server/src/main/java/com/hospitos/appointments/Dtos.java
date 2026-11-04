@@ -12,13 +12,13 @@ import java.util.List;
 public final class Dtos {
     private Dtos() {}
 
-    public record AppointmentView(String id, String patientId, String doctorId, String deptId, LocalDate date, String time,
+    public record AppointmentView(String id, String patientId, String patientName, String doctorId, String deptId, LocalDate date, String time,
                                   int duration, String type, String status, String room, String token, String notes,
                                   String recurring, boolean reminderSent) {}
 
     public record HistoryItem(int step, String at) {}
 
-    public record QueueView(long id, String token, String patientId, String doctorId, String deptId, int step, long since,
+    public record QueueView(long id, String token, String patientId, String patientName, String doctorId, String deptId, int step, long since,
                             String arrivedAt, boolean priority, boolean emergency, String appointmentId, List<HistoryItem> history) {}
 
     public record SlotView(String time, boolean ok, String reason) {}
