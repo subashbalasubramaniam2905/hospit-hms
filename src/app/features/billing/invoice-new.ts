@@ -61,7 +61,7 @@ type PatientPick = { id: string; name: string; mobile: string; primaryDoctorId?:
           @if (disc > 10) { <div class="alert-box warn small"><lucide-icon name="triangle-alert" [size]="14"></lucide-icon>Discounts above 10% need billing manager approval (logged).</div> }
           @if (bill.live) { <div class="small muted">GST is worked out by the server from the tariff; the saved invoice shows the final figures.</div> }
           @if (patient()?.insurance) {
-            <mat-slide-toggle [(ngModel)]="useIns">Bill insurance ({{ bill.provider(patient()!.insurance!.providerId)?.name }})</mat-slide-toggle>
+            <mat-slide-toggle [(ngModel)]="useIns" (ngModelChange)="bump()">Bill insurance ({{ bill.provider(patient()!.insurance!.providerId)?.name }})</mat-slide-toggle>
             @if (useIns) { <div class="soft small">Claim {{ t().total * (100 - copay()) / 100 | inr }} to insurer, patient pays {{ copay() }}% co-pay {{ t().total * copay() / 100 | inr }}. A draft claim will be created.</div> }
           }
           <div class="field"><label>Collect now</label><div class="chips">@for (m of modes; track m) {<button class="chip" [class.on]="mode === m" (click)="mode = m">{{ m }}</button>}</div></div>
@@ -137,7 +137,8 @@ export class InvoiceNewPage {
         catch (e) { this.toast.warn('Invoice saved, but the claim could not be created: ' + apiError(e)); }
       }
       if (this.mode !== 'Later') {
-        const amt = Math.min(this.paid ?? this.payable(), this.bill.totals(inv).due);
+        const t = this.bill.totals(inv).total, share = this.useIns && p.insurance ? Math.round(t * this.copay() / 100) : t;
+        const amt = Math.min(this.paid ?? share, this.bill.totals(inv).due);
         if (amt > 0) { try { inv = await this.bill.pay(inv, this.mode, amt); } catch (e) { this.toast.warn('Invoice saved, but the payment was not recorded: ' + apiError(e)); } }
       }
       if (!this.bill.live) this.store.changed();
