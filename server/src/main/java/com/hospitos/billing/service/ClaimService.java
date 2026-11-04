@@ -75,6 +75,7 @@ public class ClaimService {
       patientId = inv.patientId();
       branch = inv.branchId();
       BigDecimal max = inv.due();
+      if (max.signum() <= 0) throw new ApiException(422, "Nothing is due on invoice " + inv.number() + " to claim");
       if (claimed == null)
         claimed = inv.total().multiply(BigDecimal.valueOf(100).subtract(copay)).divide(BigDecimal.valueOf(100), 0, RoundingMode.HALF_UP).min(max);
       if (claimed.compareTo(max) > 0) throw new ApiException(422, "Claim is more than the Rs " + max.toPlainString() + " still due on the invoice");
