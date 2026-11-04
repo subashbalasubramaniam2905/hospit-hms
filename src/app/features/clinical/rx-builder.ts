@@ -8,7 +8,9 @@ import { ExportService } from '../../core/services/export.service';
 import { ToastService } from '../../core/services/toast.service';
 import { SessionService } from '../../core/services/session.service';
 import { Prescription } from '../../core/models';
-import { ICD10, safetyCheck } from '../../core/data/clinical';
+import { ICD10, SafetyAlert, safetyCheck } from '../../core/data/clinical';
+import { ClinicalApi, blockedAlerts, toLines, toPrescription, toSafetyAlert } from '../../core/api/clinical-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 @Component({
   standalone: true, imports: [SHARED, RxEditorComponent, RxDocComponent],
@@ -28,7 +30,7 @@ import { ICD10, safetyCheck } from '../../core/data/clinical';
               @else { <label class="search boxed"><lucide-icon name="search" [size]="16"></lucide-icon><input [ngModel]="pq()" (ngModelChange)="pq.set($event)" placeholder="Name, UHID or mobile" aria-label="Find patient"></label>
                 @if (pq().length > 1) { <div class="pick">@for (p of matches(); track p.id) {<button (click)="setPatient(p.id)"><cf-avatar [name]="p.name"></cf-avatar><div><b>{{ p.name }}</b><div class="small muted">{{ p.id }}</div></div></button>}</div> } }
             </div>
-            <div class="field"><label>Prescribing doctor</label><select class="inp" [ngModel]="rx().doctorId" (ngModelChange)="rx().doctorId = $event; bump()">@for (d of store.db.doctors; track d.id) {<option [value]="d.id">{{ d.name }}</option>}</select></div>
+            @if (!session.live) {<div class="field"><label>Prescribing doctor</label><select class="inp" [ngModel]="rx().doctorId" (ngModelChange)="rx().doctorId = $event; bump()">@for (d of store.db.doctors; track d.id) {<option [value]="d.id">{{ d.name }}</option>}</select></div>}
             <div class="field span2"><label>Diagnosis</label><input class="inp" list="icd" [ngModel]="rx().diagnosis" (ngModelChange)="rx().diagnosis = $event; bump()" placeholder="Type or pick an ICD-10 diagnosis">
               <datalist id="icd">@for (d of icd; track d.code) {<option [value]="d.label">{{ d.code }}</option>}</datalist></div>
           </div>
@@ -41,7 +43,7 @@ import { ICD10, safetyCheck } from '../../core/data/clinical';
           <button class="btn ghost" (click)="saveDraft()"><lucide-icon name="file-check" [size]="16"></lucide-icon>Save draft</button>
           <button class="btn ghost" (click)="print()"><lucide-icon name="printer" [size]="16"></lucide-icon>Print / PDF</button>
           <span class="spacer"></span>
-          <button class="btn" [disabled]="!canSign()" (click)="sign()"><lucide-icon name="badge-check" [size]="16"></lucide-icon>Sign and send to pharmacy</button>
+          <button class="btn" [disabled]="!canSign() || busy()" (click)="sign()"><lucide-icon name="badge-check" [size]="16"></lucide-icon>Sign and send to pharmacy</button>
         </div>
       </div>
       <div class="c5"><div class="prev stack-s"><div class="row"><b>Live preview</b><span class="spacer"></span><span class="demo-tag">Not a valid prescription</span></div><cf-rx-doc [rx]="preview()"></cf-rx-doc></div></div>
@@ -52,22 +54,59 @@ export class RxBuilderPage {
   printer = inject(ExportService);
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router); session = inject(SessionService);
   icd = ICD10; pq = signal(''); rev = signal(0); override = '';
+  private api = inject(ClinicalApi); busy = signal(false); serverAlerts = signal<SafetyAlert[]>([]); private ver = 0;
   rx = signal<Prescription>(this.store.newRx('', this.session.roleId() === 'doctor' ? 'D01' : 'D01'));
   constructor() {
     const q = inject(ActivatedRoute).snapshot.queryParamMap;
     const existing = this.store.db.prescriptions.find(r => r.id === q.get('rx'));
-    if (existing) this.rx.set(existing); else if (q.get('patient')) this.setPatient(q.get('patient')!);
+    if (this.session.live && q.get('rx')) {
+      this.api.getPrescription(q.get('rx')!).then(d => { const rx = toPrescription(d.prescription); this.ver = rx.version; this.rx.set(rx); this.serverAlerts.set(d.alerts.map(toSafetyAlert)); this.bump(); })
+        .catch(e => this.toast.err(apiMessage(e, 'Could not open the prescription')));
+    } else if (existing) this.rx.set(existing); else if (q.get('patient')) this.setPatient(q.get('patient')!);
   }
   patient = computed(() => { this.rev(); return this.store.patient(this.rx().patientId); });
   labs = computed(() => this.store.db.labOrders.filter(o => o.patientId === this.rx().patientId));
   matches = computed(() => { const q = this.pq().toLowerCase(); return this.store.db.patients.filter(p => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || p.mobile.replace(/\D/g, '').includes(q.replace(/\D/g, '') || '#')).slice(0, 6); });
   preview = computed(() => { this.rev(); return { ...this.rx(), items: [...this.rx().items] }; });
-  crit = computed(() => { this.rev(); return safetyCheck(this.patient(), this.rx().items, this.labs()).filter(a => a.level === 'crit'); });
+  crit = computed(() => {
+    this.rev();
+    const local = safetyCheck(this.patient(), this.rx().items, this.labs()).filter(a => a.level === 'crit');
+    const seen = new Set(local.map(a => a.title));
+    return [...local, ...this.serverAlerts().filter(a => a.level === 'crit' && !seen.has(a.title))];
+  });
   canSign() { return !!this.patient() && this.rx().items.length > 0 && (!this.crit().length || this.override.trim().length > 4); }
   bump() { this.rev.update(v => v + 1); }
   setPatient(id: string) { this.rx().patientId = id; const p = this.store.patient(id); if (p && !this.rx().diagnosis) this.rx().diagnosis = p.conditions[0] || ''; this.pq.set(''); this.bump(); }
-  saveDraft() { if (!this.patient()) { this.toast.err('Choose a patient first'); return; } this.store.saveRx(this.rx(), 'Draft'); this.toast.ok('Prescription saved as draft'); }
+  saveDraft() {
+    if (!this.patient()) { this.toast.err('Choose a patient first'); return; }
+    if (this.session.live) { this.saveLive().then(() => this.toast.ok('Prescription saved as draft')).catch(e => this.toast.err(apiMessage(e, 'Could not save the prescription'))); return; }
+    this.store.saveRx(this.rx(), 'Draft'); this.toast.ok('Prescription saved as draft');
+  }
+  /** Live mode: creates the draft on the server the first time, then updates it. */
+  private async saveLive() {
+    const rx = this.rx(); const items = toLines(rx.items);
+    const saved = this.ver
+      ? await this.api.updatePrescription(rx.id, { version: this.ver, diagnosis: rx.diagnosis, notes: rx.notes, items })
+      : await this.api.createPrescription({ patientId: rx.patientId, diagnosis: rx.diagnosis, notes: rx.notes, items });
+    const s = toPrescription(saved); this.ver = s.version; this.rx.set(s); this.store.upsertPrescription(s);
+    this.serverAlerts.set((await this.api.check(s.patientId, items)).map(toSafetyAlert)); this.bump();
+    return s;
+  }
+  private async signLive() {
+    this.busy.set(true);
+    try {
+      const s = await this.saveLive();
+      const signed = toPrescription(await this.api.sign(s.id, this.ver, true, this.override.trim()));
+      this.store.upsertPrescription(signed);
+      this.toast.ok(`Signed and sent to the pharmacy queue (${signed.items.length} items)`); this.router.navigate(['/prescriptions']);
+    } catch (e) {
+      const alerts = blockedAlerts(e);
+      if (alerts) { this.serverAlerts.set(alerts.map(toSafetyAlert)); this.bump(); this.toast.err('Give a reason for overriding the critical safety alerts before signing'); }
+      else this.toast.err(apiMessage(e, 'Could not sign the prescription'));
+    } finally { this.busy.set(false); }
+  }
   sign() {
+    if (this.session.live) { this.signLive(); return; }
     const rx = this.rx(); if (this.override.trim()) { rx.notes = [rx.notes, `Override: ${this.override}`].filter(Boolean).join(' · '); this.store.log('Override', 'Safety alert', this.crit().map(a => a.title).join('; '), 'Flagged'); }
     this.store.saveRx(rx, 'Sent to pharmacy');
     this.store.notify('In-app', 'Prescription', rx.patientId, `Your prescription ${rx.id} has been sent to the HospitOS pharmacy.`);

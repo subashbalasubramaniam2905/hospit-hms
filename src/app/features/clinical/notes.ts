@@ -4,6 +4,9 @@ import { StoreService } from '../../core/services/store.service';
 import { ExportService } from '../../core/services/export.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Consultation } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { ClinicalApi, toConsultation } from '../../core/api/clinical-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -71,13 +74,22 @@ import { Consultation } from '../../core/models';
 })
 export class ClinicalNotesPage {
   printer = inject(ExportService);
-  store = inject(StoreService); toast = inject(ToastService);
+  store = inject(StoreService); toast = inject(ToastService); session = inject(SessionService); private api = inject(ClinicalApi);
   patientId = input<string>('');
   mode = signal<'view' | 'compare'>('view'); sel = signal<string[]>([]);
   fields: { k: keyof Consultation; label: string }[] = [{ k: 'cc', label: 'Chief complaint' }, { k: 'hpi', label: 'History of present illness' }, { k: 'exam', label: 'Examination' }, { k: 'assessment', label: 'Assessment' }, { k: 'plan', label: 'Plan' }, { k: 'meds', label: 'Medicines at visit' }];
   p = computed(() => this.store.patient(this.patientId()));
   visits = computed(() => { this.store.rev(); return this.store.db.consultations.filter(c => c.patientId === this.patientId()).sort((a, b) => b.date.localeCompare(a.date)); });
-  constructor() { effect(() => { const v = this.visits(); untracked(() => this.sel.set(v.slice(0, 2).map(x => x.id).reverse())); }); }
+  constructor() {
+    effect(() => { const v = this.visits(); untracked(() => this.sel.set(v.slice(0, 2).map(x => x.id).reverse())); });
+    // Live mode: notes come from the server (this read is audited there).
+    effect(() => {
+      const id = this.patientId(); if (!this.session.live || !id) return;
+      untracked(() => this.api.listConsultations({ patientId: id, limit: 50 })
+        .then(list => list.forEach(c => this.store.upsertConsultation(toConsultation(c))))
+        .catch(e => this.toast.err(apiMessage(e, 'Could not load clinical notes'))));
+    });
+  }
   a = computed(() => this.visits().find(v => v.id === (this.mode() === 'view' ? this.sel()[this.sel().length - 1] : this.sel()[0])));
   b = computed(() => this.visits().find(v => v.id === this.sel()[1]));
   vitalRows = computed(() => {

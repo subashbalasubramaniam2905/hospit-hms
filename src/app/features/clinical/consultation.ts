@@ -8,7 +8,10 @@ import { ToastService } from '../../core/services/toast.service';
 import { SessionService } from '../../core/services/session.service';
 import { AiMockService, AiSuggestion } from '../../core/services/ai-mock.service';
 import { Consultation, Prescription } from '../../core/models';
-import { ICD10, TEMPLATES, safetyCheck } from '../../core/data/clinical';
+import { ICD10, SafetyAlert, TEMPLATES, safetyCheck } from '../../core/data/clinical';
+import { ClinicalApi, ConsultationDetail, blockedAlerts, toConsultation, toLines, toPrescription, toSafetyAlert } from '../../core/api/clinical-api';
+import { PatientsApi } from '../../core/api/patients-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 @Component({
   standalone: true, imports: [SHARED, RxEditorComponent],
@@ -50,6 +53,11 @@ import { ICD10, TEMPLATES, safetyCheck } from '../../core/data/clinical';
         </cf-table>
       </div>
     </div>
+  } @else if (!cons()) {
+    <div class="page"><div class="card">
+      @if (liveError()) { <cf-empty icon="user-x" title="Could not open the consultation" [text]="liveError()"></cf-empty> }
+      @else { <cf-empty icon="stethoscope" title="Opening the consultation…"></cf-empty> }
+    </div></div>
   } @else {
   @let p = patient()!; @let c = cons()!;
   <div class="page">
@@ -234,6 +242,7 @@ import { ICD10, TEMPLATES, safetyCheck } from '../../core/data/clinical';
 export class ConsultationPage {
   printer = inject(ExportService);
   store = inject(StoreService); toast = inject(ToastService); session = inject(SessionService); ai = inject(AiMockService); router = inject(Router);
+  private api = inject(ClinicalApi); private patientsApi = inject(PatientsApi);
   patientId = input<string>('');
   templates = TEMPLATES;
   sections = [{ id: 'vitals', label: 'Vitals' }, { id: 'history', label: 'Subjective' }, { id: 'exam', label: 'Exam' }, { id: 'dx', label: 'Diagnosis' }, { id: 'orders', label: 'Orders' }, { id: 'rx', label: 'Rx' }, { id: 'plan', label: 'Plan' }];
@@ -244,14 +253,23 @@ export class ConsultationPage {
   tests = signal<string[]>([]); priority = signal('Routine'); img = { modality: '', study: '' };
   dxq = signal(''); review = signal(false); savedAt = signal(''); aiRev = signal(0); dismissed = signal<string[]>([]);
   override = ''; confirmAi = false; private t: ReturnType<typeof setTimeout> | null = null;
+  /** Live mode: versions for optimistic locking, alerts from the server's safety screen, and save bookkeeping. */
+  private ver = 0; private loadSeq = 0; private saving: Promise<void> | null = null; private again = false;
+  serverAlerts = signal<SafetyAlert[]>([]); liveLoading = signal(false); liveError = signal('');
 
-  myDoctor = computed(() => this.session.roleId() === 'doctor' ? 'D01' : '');
-  patient = computed(() => this.store.patient(this.patientId()));
+  myDoctor = computed(() => this.session.roleId() === 'doctor' && !this.session.live ? 'D01' : '');
+  patient = computed(() => { this.store.rev(); return this.store.patient(this.patientId()); });
   ro = computed(() => this.cons()?.status === 'Completed');
 
   constructor() {
+    // Live mode: the patient may not be in the first page loaded at sign-in, so fetch it.
+    effect(() => {
+      const id = this.patientId(); if (!this.session.live || !id) return;
+      untracked(() => { if (!this.store.patient(id)) this.patientsApi.get(id).then(p => this.store.upsertPatient(p)).catch(() => { /* shows "not found" */ }); });
+    });
     effect(() => {
       const p = this.patient(); if (!p) { this.cons.set(null); return; }
+      if (this.session.live) { const id = p.id; untracked(() => { if (this.cons()?.patientId !== id) this.openLive(id); }); return; }
       untracked(() => {
         const appt = this.store.db.appointments.find(a => a.patientId === p.id && a.date === this.store.today());
         const docId = this.myDoctor() || appt?.doctorId || p.primaryDoctorId;
@@ -290,7 +308,14 @@ export class ConsultationPage {
   prevVisits = computed(() => { this.store.rev(); return this.store.db.consultations.filter(c => c.patientId === this.patientId() && c.status === 'Completed' && c.id !== this.cons()?.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4); });
   summary = computed(() => { const p = this.patient(); return p ? this.ai.summary(p) : ''; });
   suggestions = computed(() => { this.aiRev(); const p = this.patient(), c = this.cons(); if (!p || !c) return []; const d = this.dismissed(); return this.ai.suggestions(p, c).filter(s => !d.includes(s.title)); });
-  critAlerts = computed(() => { this.aiRev(); return safetyCheck(this.patient(), this.rx().items, this.patientLabs()).filter(a => a.level === 'crit'); });
+  critAlerts = computed(() => {
+    this.aiRev();
+    const local = safetyCheck(this.patient(), this.rx().items, this.patientLabs()).filter(a => a.level === 'crit');
+    if (!this.session.live) return local;
+    // The server's screen decides whether signing is allowed, so its critical alerts are always shown.
+    const seen = new Set(local.map(a => a.title));
+    return [...local, ...this.serverAlerts().filter(a => a.level === 'crit' && !seen.has(a.title))];
+  });
   critTitles = computed(() => this.critAlerts().map(a => a.title).join('; '));
   dxText = computed(() => { this.aiRev(); return (this.cons()?.dx || []).map(d => `${d.code} ${d.label}`).join(', '); });
   canSign() { const c = this.cons(); return !!c && c.dx.length > 0 && this.confirmAi && (!this.critAlerts().length || this.override.trim().length > 4); }
@@ -300,6 +325,7 @@ export class ConsultationPage {
   dirty() { this.aiRev.update(v => v + 1); if (this.ro()) return; if (this.t) clearTimeout(this.t); this.t = setTimeout(() => this.save(false), 1200); }
   save(explicit: boolean) {
     const c = this.cons(); if (!c || this.ro()) return;
+    if (this.session.live) { this.saveLive(explicit).catch(() => { /* reported in saveLive */ }); return; }
     const rx = this.rx(); rx.diagnosis = c.dx.map(d => d.label).join(', ');
     if (rx.items.length && !this.store.db.prescriptions.includes(rx)) this.store.db.prescriptions.unshift(rx);
     if (explicit) { this.store.saveDraft(c); this.toast.ok('Draft saved. You can come back to it any time today.'); } else this.store.changed();
@@ -324,6 +350,7 @@ export class ConsultationPage {
     this.dismiss(s); this.dirty(); this.toast.ok('Suggestion added. Edit it as needed. It is now your note.');
   }
   sign() {
+    if (this.session.live) { this.signLive(); return; }
     const c = this.cons()!, p = this.patient()!; const rx = this.rx(); rx.diagnosis = c.dx.map(d => d.label).join(', ');
     if (this.override.trim()) { rx.notes = `Override: ${this.override}`; this.store.log('Override', 'Safety alert', `${this.critTitles()} · ${this.override}`, 'Flagged'); }
     if (this.tests().length) this.store.orderLab(p.id, c.doctorId, this.tests(), this.priority() as 'Routine');
@@ -336,4 +363,80 @@ export class ConsultationPage {
   }
   nextPatient() { const n = this.worklist().find(r => r.patientId !== this.patientId() && r.state !== 'Completed'); if (n) this.open(n.patientId); else { this.toast.info('No more patients waiting'); this.router.navigate(['/consultation']); } }
   print() { this.printer.print(); }
+
+  // ---------- live mode ----------
+  private async openLive(patientId: string) {
+    const seq = ++this.loadSeq; const p = this.store.patient(patientId)!;
+    this.cons.set(null); this.liveLoading.set(true); this.liveError.set('');
+    // A doctor linked to a profile writes as themselves; other roles use today's appointment or the primary doctor.
+    const appt = this.store.db.appointments.find(a => a.patientId === patientId && a.date === this.store.today());
+    const docId = this.session.roleId() === 'doctor' ? undefined : appt?.doctorId || p.primaryDoctorId || undefined;
+    try {
+      const [d, history] = await Promise.all([this.api.open(patientId, docId, appt?.id), this.api.listConsultations({ patientId, status: 'Completed', limit: 10 })]);
+      if (seq !== this.loadSeq) return;
+      history.forEach(h => this.store.upsertConsultation(toConsultation(h)));
+      this.apply(d, true);
+      const c = this.cons()!;
+      if (!c.hpi && !c.exam) { const t = TEMPLATES.find(x => x.name === c.template); if (t) { c.hpi = t.hpi; c.exam = t.exam; c.cc = c.cc || t.cc; } }
+      this.tests.set([]); this.img = { modality: '', study: '' }; this.dismissed.set([]); this.savedAt.set(''); this.override = ''; this.confirmAi = false;
+    } catch (e) {
+      if (seq === this.loadSeq) this.liveError.set(apiMessage(e, 'Could not open the consultation'));
+      if (seq === this.loadSeq) this.toast.err(apiMessage(e, 'Could not open the consultation'));
+    } finally { if (seq === this.loadSeq) this.liveLoading.set(false); }
+  }
+
+  /** Takes the server's copy. On autosave the note being typed stays as it is; only versions, ids and alerts move. */
+  private apply(d: ConsultationDetail, replace: boolean) {
+    const sc = toConsultation(d.consultation); this.ver = sc.version;
+    const cur = this.cons();
+    if (replace || !cur || cur.id !== sc.id || sc.status !== 'Draft') { this.cons.set(sc); this.store.upsertConsultation(sc); }
+    else { cur.prescriptionId = sc.prescriptionId; this.store.upsertConsultation(cur); }
+    if (d.prescription) {
+      const rx = toPrescription(d.prescription);
+      if (replace || this.rx().id !== rx.id || rx.status !== 'Draft') this.rx.set(rx);
+      else Object.assign(this.rx(), { id: rx.id, status: rx.status });
+      this.store.upsertPrescription(rx.status === 'Draft' ? this.rx() : rx);
+    } else if (replace) {
+      this.rx.set(Object.assign(this.store.newRx(sc.patientId, sc.doctorId), { consultationId: sc.id }));
+    }
+    this.serverAlerts.set(d.alerts.map(toSafetyAlert)); this.aiRev.update(v => v + 1);
+  }
+
+  private body() {
+    const c = this.cons()!, rx = this.rx();
+    return { version: this.ver, template: c.template, vitals: c.vitals, cc: c.cc, hpi: c.hpi, pmh: c.pmh, fh: c.fh, sh: c.sh, meds: c.meds,
+      allergyNote: c.allergyNote, exam: c.exam, dx: c.dx, assessment: c.assessment, plan: c.plan, notes: c.notes, followUp: c.followUp,
+      followUpDate: c.followUpDate, prescription: { notes: rx.notes, items: toLines(rx.items) } };
+  }
+
+  /** Saves one request at a time; edits made while a save is running are sent right after it. */
+  private saveLive(explicit: boolean): Promise<void> {
+    if (this.saving) { this.again = true; return this.saving; }
+    const c = this.cons(); if (!c) return Promise.resolve();
+    this.saving = this.api.update(c.id, this.body())
+      .then(d => { this.apply(d, false); this.savedAt.set(this.store.nowTime()); if (explicit) this.toast.ok('Draft saved. You can come back to it any time today.'); })
+      .catch(e => { this.toast.err(apiMessage(e, 'Could not save the consultation')); if ((e as { status?: number }).status === 409) this.openLive(c.patientId); throw e; })
+      .finally(() => { this.saving = null; if (this.again) { this.again = false; this.saveLive(false).catch(() => { /* already reported */ }); } });
+    return this.saving;
+  }
+
+  private async signLive() {
+    const c = this.cons(); if (!c) return;
+    if (this.t) { clearTimeout(this.t); this.t = null; }
+    try {
+      await this.saveLive(false); while (this.saving) await this.saving;
+      const d = await this.api.complete(c.id, this.ver, this.override.trim());
+      this.apply(d, true); this.review.set(false);
+      // Lab and imaging orders stay in this browser until those modules are connected to the server.
+      const p = this.patient()!;
+      if (this.tests().length) this.store.orderLab(p.id, c.doctorId, this.tests(), this.priority() as 'Routine');
+      const rx = d.prescription;
+      const bits = [rx?.items.length ? 'prescription sent to pharmacy' : '', this.tests().length ? `${this.tests().length} tests ordered` : ''].filter(Boolean).join(', ');
+      this.toast.ok(`Consultation signed${bits ? ': ' + bits : ''}`);
+    } catch (e) {
+      const alerts = blockedAlerts(e);
+      if (alerts) { this.serverAlerts.set(alerts.map(toSafetyAlert)); this.aiRev.update(v => v + 1); this.toast.err('Give a reason for overriding the critical safety alerts before signing'); }
+      else this.toast.err(apiMessage(e, 'Could not sign the consultation'));
+    }
+  }
 }
