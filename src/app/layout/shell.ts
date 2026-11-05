@@ -5,6 +5,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { filter } from 'rxjs';
+import { AccessService } from '../core/services/access.service';
 import { SessionService } from '../core/services/session.service';
 import { ThemeService } from '../core/services/theme.service';
 import { StoreService } from '../core/services/store.service';
@@ -18,7 +19,7 @@ import { AvatarComponent, LogoComponent } from '../shared';
   templateUrl: './shell.html', styleUrl: './shell.scss'
 })
 export class ShellComponent {
-  session = inject(SessionService); theme = inject(ThemeService); store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  session = inject(SessionService); theme = inject(ThemeService); store = inject(StoreService); toast = inject(ToastService); router = inject(Router); access = inject(AccessService);
   sideOpen = signal(false);
   q = signal(''); searchOpen = signal(false); listening = signal(false);
   noteOpen = signal(false);
@@ -39,7 +40,10 @@ export class ShellComponent {
   constructor() {
     this.router.events.pipe(filter(e => e instanceof NavigationEnd)).subscribe(() => { this.sideOpen.set(false); this.searchOpen.set(false); this.noteOpen.set(false); document.querySelector('.content')?.scrollTo?.(0, 0); window.scrollTo(0, 0); });
     setInterval(() => this.store.tickQueue(), 60000);
-    if (this.session.live) this.store.syncPatients().catch(() => this.toast.err('Could not load patients from the server'));
+    if (this.session.live) {
+      this.store.syncPatients().catch(() => this.toast.err('Could not load patients from the server'));
+      this.access.load().catch(() => undefined); // the built-in screen access applies until the hospital's rules load
+    }
   }
 
   @HostListener('document:keydown', ['$event']) key(e: KeyboardEvent) {

@@ -18,6 +18,8 @@ management:
 hospitos:
   # Must be at least 32 characters. Set JWT_SECRET in every real environment.
   jwt-secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+  # Encrypts integration secrets (API keys, tokens) at rest. Set SECRET_KEY (32+ characters) in every real environment.
+  secret-key: ${SECRET_KEY:}
   token-hours: ${TOKEN_HOURS:8}
   cors-origins: ${CORS_ORIGINS:http://localhost:4200,http://localhost:4201}
   # Creates the first super administrator when no accounts exist yet.

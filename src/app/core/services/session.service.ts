@@ -4,6 +4,7 @@ import { NAV, ROLES, role } from '../roles';
 import { LIVE } from '../api/api-config';
 import { AuthService } from '../api/auth.service';
 import { StoreService } from './store.service';
+import { AccessService } from './access.service';
 
 const KEY = 'hospit-hms:session';
 
@@ -11,6 +12,7 @@ const KEY = 'hospit-hms:session';
 export class SessionService {
   private auth = inject(AuthService);
   private store = inject(StoreService);
+  private access = inject(AccessService);
   /** True when connected to a HospitOS server: real accounts, no demo role switching. */
   readonly live = LIVE;
   readonly roleId = signal<RoleId | null>(null);
@@ -25,6 +27,7 @@ export class SessionService {
   });
   readonly nav = computed(() => {
     const r = this.roleId(); if (!r) return [];
+    this.access.rev();
     return NAV.map(g => ({ ...g, items: g.items.filter(i => !i.roles || i.roles.includes(r)) })).filter(g => g.items.length);
   });
   readonly roles = ROLES;

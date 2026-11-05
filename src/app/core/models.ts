@@ -117,9 +117,9 @@ export interface AuditLog { id: string; time: string; user: string; role: string
 export interface LoginEvent { id: string; time: string; user: string; role: string; ip: string; device: string; result: 'Success' | 'Failed' | 'Locked'; }
 export interface UserAccount { id: string; name: string; email: string; roleId: RoleId; branches: string[]; depts: string[]; status: 'Active' | 'Invited' | 'Suspended'; lastLogin: string; mfa: boolean; }
 
-export interface Integration { id: string; name: string; category: string; description: string; enabled: boolean; status: 'Connected' | 'Not configured' | 'Error' | 'Disabled'; lastSync?: string; fields: { key: string; label: string; value: string; secret?: boolean }[]; }
+export interface Integration { id: string; name: string; category: string; description: string; enabled: boolean; status: 'Connected' | 'Configured' | 'Not configured' | 'Error' | 'Disabled'; lastSync?: string; fields: { key: string; label: string; value: string; secret?: boolean; set?: boolean }[]; version?: number; lastResult?: string; }
 export interface WorkflowStep { kind: 'trigger' | 'condition' | 'action'; label: string; detail: string; }
-export interface Workflow { id: string; name: string; enabled: boolean; runs: number; steps: WorkflowStep[]; lastRun?: string; }
+export interface Workflow { id: string; name: string; enabled: boolean; runs: number; steps: WorkflowStep[]; lastRun?: string; version?: number; }
 
 export interface FollowUp { id: string; patientId: string; doctorId: string; due: string; reason: string; status: 'Due' | 'Overdue' | 'Booked' | 'Completed'; reminder: 'Not sent' | 'Sent' | 'Delivered' | 'Failed'; appointmentId?: string; }
 export interface Feedback { id: string; patientId: string; date: string; rating: number; comment: string; dept: string; }

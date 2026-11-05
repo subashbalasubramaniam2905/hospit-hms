@@ -24,6 +24,7 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 | `TOKEN_HOURS` | `8` | Sign-in lifetime. |
 | `CORS_ORIGINS` | `http://localhost:4200` | Comma-separated origins of the Angular app. |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | empty | First super administrator, used only when no accounts exist. |
+| `SECRET_KEY` | derived from `JWT_SECRET` | Encrypts integration secrets (API keys, tokens) at rest. **Set it in every real environment**; changing it makes stored secrets unreadable. |
 | `PORT` | `8080` | |
 
 ## API (foundation)
@@ -69,7 +70,8 @@ daily break in `doctor.break_start/break_end` (13:00 to 14:00 by default).
 
 - **Package:** `com.hospitos.<module>` (for example `com.hospitos.appointments`). Controllers under `/api/<module>`.
 - **Database:** plain SQL through `JdbcClient`. Flyway versions are reserved per module so parallel work never collides:
-  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49, radiology V50–V59, emergency and OT V60–V69, inpatients V70–V79, admin/staff/inventory V80–V89.
+  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49,
+  radiology V50–V59, emergency and OT V60–V69, inpatients V70–V79, administration, staff, stores and notifications V80–V89, insights V90–V99.
   Use snake_case. Use `text` ids where the Angular model already has readable ids, `uuid` otherwise.
 - **Keys you will reference:** `patient(id text)` (UHID), `branch(id text)` (`BR1` Udumalpet, `BR2` Pollachi, `BR3` Palani),
   `department(id text)`, `doctor(id text, dept_id, user_id → app_user)`, `app_user(id uuid)`.
@@ -241,3 +243,15 @@ doctor-round note, so billing staff change those prices in the tariff. Pharmacy 
 **Known gaps.** Ward layout and room rates in V71 are a SAMPLE for Udumalpet (20 beds) and Pollachi (45 beds); change them before go-live.
 Advance deposits are kept by the IPD module, so they are not in the billing desk's "collected today" yet. MAR doses are single entries (no
 repeating schedules), NEWS2 leaves out consciousness and oxygen, and escalations only reach the audit trail until notifications exist.
+
+## API (administration)
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/audit?entity=&entityId=&risk=&limit=` | super-admin, admin | Each entry has `risk`: `Flagged` (an admin flagged it), `Sensitive` (accounts, settings, money, exports, failed sign-ins) or `Normal`. |
+| `GET /api/audit/logins`, `POST /api/audit/{id}/flag`, `POST /api/audit/exported` | super-admin, admin | Sign-in history from the trail; flag an entry for review (`{note}`, stored beside the append-only trail); record a browser export. |
+| `GET /api/admin/config`, `PUT /api/admin/config` | read: signed in; change: super-admin, admin | Registration number, OPD hours, booking, queue and notification channel rules. Send `version`; stale gets 409. Name, GSTIN and address stay in `/api/billing/settings`. These rules are stored but the appointment and queue modules do not read them yet (they use each doctor's hours and slot length). |
+| `GET /api/admin/role-access`, `PUT /api/admin/role-access` | read: signed in; change: super-admin, admin | Screen access overrides `{role, path, level: Full, View or None}` used to build the sidebar. Module endpoints still enforce their own role rules. Only super admins change admin access. |
+| `GET/POST /api/admin/departments`, `PUT /api/admin/departments/{id}` | super-admin, admin | Add, rename or close (`active: false`) departments in your own branches. Ids are made from the name (`DERM`, `GM`). |
+| `GET/POST /api/admin/workflows`, `PUT/DELETE /api/admin/workflows/{id}`, `POST /api/admin/workflows/{id}/test` | super-admin, admin | Trigger, condition and action steps. There is no workflow engine yet: a test run lists what each step would do and sends nothing. |
+| `GET /api/admin/integrations`, `PUT /api/admin/integrations/{id}`, `POST /api/admin/integrations/{id}/test` | super-admin | Connection settings for ABDM, HL7, FHIR, LIS, PACS, payments, SMS, email, WhatsApp, TPA, accounting and devices. Secrets are AES-GCM encrypted with `SECRET_KEY` and never returned (`set: true` only); send an empty value to keep one, `-` to clear it. No connector is live yet, so a test only checks the settings are complete and status is at most `Configured`. |
