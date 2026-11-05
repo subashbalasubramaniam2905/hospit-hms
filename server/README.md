@@ -69,7 +69,7 @@ daily break in `doctor.break_start/break_end` (13:00 to 14:00 by default).
 
 - **Package:** `com.hospitos.<module>` (for example `com.hospitos.appointments`). Controllers under `/api/<module>`.
 - **Database:** plain SQL through `JdbcClient`. Flyway versions are reserved per module so parallel work never collides:
-  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49.
+  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49, radiology V50–V59.
   Use snake_case. Use `text` ids where the Angular model already has readable ids, `uuid` otherwise.
 - **Keys you will reference:** `patient(id text)` (UHID), `branch(id text)` (`BR1` Udumalpet, `BR2` Pollachi, `BR3` Palani),
   `department(id text)`, `doctor(id text, dept_id, user_id → app_user)`, `app_user(id uuid)`.
@@ -167,3 +167,19 @@ Order flow: Awaiting sample → Sample collected → Processing → Result ready
 | `PUT /api/lab/orders/{id}/results` | lab-tech, admins | `{results:{testId:{param:value}}, comments, version, submit}`. `submit` needs every value and moves to Result ready; flags N/L/H/C are worked out from the ranges. |
 | `POST /api/lab/orders/{id}/reopen`, `/verify` | lab-tech, doctor, admins | Verify returns the critical values, which are also written to the audit trail. |
 | `POST /api/lab/orders/{id}/deliver`, `GET /api/lab/orders/{id}/report` | lab-tech, admins / lab readers | Report includes each parameter's flag and the patient's previous verified value. |
+
+## API (radiology)
+
+Study flow: Ordered → Scheduled → In progress → Awaiting report → Reported → Verified. Ordered and Scheduled studies can be cancelled (after any invoice for them is cancelled in Billing); a submitted report can be reopened until it is verified. `V50__radiology.sql` holds a fictional sample imaging tariff and rooms for BR1–BR3; replace them with the hospital's own before going live.
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/radiology/studies`, `GET /api/radiology/rooms?branchId=` | radiology, clinical, front desk, billing | Imaging tariff (price, minutes, contrast) and scanning rooms in the user's branches. |
+| `GET /api/radiology/schedule?branchId=&date=` | same | Booked slots on a day (Scheduled and In progress studies), for picking a free slot. |
+| `GET /api/radiology/orders?status=&modality=&patientId=&q=&date=&from=&to=`, `GET /api/radiology/orders/{id}` | same | Orders in the user's branches. Opening one is audited. |
+| `POST /api/radiology/orders` | doctor, nurse, receptionist, radiologist, admins | `{patientId, doctorId, studyId \| (modality, study), priority, date, slot, room, bill, contrastOverride}`. Ids are `IM03400`...; free-text studies match the tariff by name or use the modality's default rate. A contrast study for a patient with a contrast allergy needs `contrastOverride` (audited). With `date` and `slot` the study is booked straight away. With `bill` (default true) an OPD invoice is raised. |
+| `PUT /api/radiology/orders/{id}/schedule` | receptionist, radiologist, admins | `{date, slot, room, version}`. Without `room` the first free room for the modality is used; overlapping a booked study in the room is refused with 409. |
+| `POST /api/radiology/orders/{id}/start`, `/acquire` | radiologist, admins | Start takes an optional `{technician}` (defaults to the signed-in user). |
+| `PUT /api/radiology/orders/{id}/report` | radiologist, admins | `{findings, impression, version, submit}`. `submit` needs both and moves to Reported. |
+| `POST /api/radiology/orders/{id}/reopen`, `/verify`, `/cancel` | radiologist, admins (cancel also doctor, receptionist) | Cancel takes `{reason}`. |
+| `GET /api/radiology/orders/{id}/report` | radiology readers | The report with patient details and up to five earlier verified studies of the same modality. |

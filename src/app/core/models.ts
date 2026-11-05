@@ -65,7 +65,7 @@ export interface LabTest { id: string; code: string; name: string; category: str
 export type LabStatus = 'Ordered' | 'Awaiting sample' | 'Sample collected' | 'Processing' | 'Result ready' | 'Verified' | 'Delivered';
 export interface LabOrder { id: string; patientId: string; doctorId: string; testIds: string[]; date: string; time: string; status: LabStatus; priority: 'Routine' | 'Urgent' | 'STAT'; sampleId?: string; collectedAt?: string; collectedBy?: string; results: Record<string, Record<string, number | null>>; verifiedBy?: string; billed: boolean; comments?: string; }
 
-export type ImgStatus = 'Ordered' | 'Scheduled' | 'In progress' | 'Awaiting report' | 'Reported' | 'Verified';
+export type ImgStatus = 'Ordered' | 'Scheduled' | 'In progress' | 'Awaiting report' | 'Reported' | 'Verified' | 'Cancelled';
 export interface ImagingOrder { id: string; patientId: string; doctorId: string; modality: 'X-ray' | 'CT' | 'MRI' | 'Ultrasound'; study: string; date: string; slot: string; room: string; status: ImgStatus; technician?: string; radiologist?: string; findings?: string; impression?: string; billed: boolean; price: number; priority: 'Routine' | 'Urgent'; }
 
 export type PayMode = 'Cash' | 'UPI' | 'Card' | 'Bank transfer' | 'Online' | 'Insurance' | 'Advance';

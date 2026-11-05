@@ -5,6 +5,7 @@ import { StoreService } from '../../core/services/store.service';
 import { SessionService } from '../../core/services/session.service';
 import { ToastService } from '../../core/services/toast.service';
 import { JOURNEY } from '../../core/models';
+import { RadiologySync } from '../../core/api/radiology-sync';
 
 interface Kpi { label: string; value: string | number; of?: string | number; trend?: string; tone: 'pri' | 'pink' | 'amber' | 'blue' | 'green' | 'red' | 'violet'; icon: string; link?: string; sub?: string; }
 
@@ -14,6 +15,8 @@ interface Kpi { label: string; value: string | number; of?: string | number; tre
 export class DashboardPage {
   store = inject(StoreService); session = inject(SessionService); router = inject(Router); toast = inject(ToastService);
   journey = JOURNEY;
+  /** Live mode: the radiologist's tiles count the server's imaging worklist. */
+  private radLoad = this.session.live && this.session.roleId() === 'radiologist' ? inject(RadiologySync).load().catch(() => undefined) : null;
   kind = computed(() => this.session.role()?.dashboard ?? 'admin');
   greeting = (() => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
   firstName = computed(() => { const n = this.session.role()?.userName ?? ''; return n.startsWith('Dr.') ? 'Dr. ' + n.split(' ').slice(-1)[0] : n.split(' ')[0]; });
@@ -81,7 +84,7 @@ export class DashboardPage {
         { label: 'Critical values', value: db.labOrders.filter(o => this.store.criticals(o).length && !['Delivered'].includes(o.status)).length, tone: 'red', icon: 'triangle-alert', link: '/lab/results' },
       ];
       case 'radiology': return [
-        { label: 'Scheduled today', value: db.imaging.filter(i => i.date === this.store.today()).length, tone: 'pri', icon: 'scan-line', link: '/radiology' },
+        { label: 'Scheduled today', value: db.imaging.filter(i => i.date === this.store.today() && i.slot && i.status !== 'Cancelled').length, tone: 'pri', icon: 'scan-line', link: '/radiology' },
         { label: 'Awaiting report', value: db.imaging.filter(i => i.status === 'Awaiting report').length, tone: 'pink', icon: 'file-text', link: '/radiology' },
         { label: 'In progress', value: db.imaging.filter(i => i.status === 'In progress').length, tone: 'amber', icon: 'timer', link: '/radiology' },
         { label: 'Reported', value: db.imaging.filter(i => ['Reported', 'Verified'].includes(i.status)).length, tone: 'blue', icon: 'file-check', link: '/radiology' },
