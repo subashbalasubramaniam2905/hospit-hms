@@ -159,12 +159,15 @@ export class StoreService {
     const u = acct ? { userName: acct.name, roleId: acct.role } : (() => { try { return JSON.parse(localStorage.getItem('hospit-hms:session') || '{}'); } catch { return {}; } })();
     this.db.audit.unshift({ id: this.uid('AU'), time: this.nowStamp(), user: u.userName || 'Demo user', role: u.roleId || 'admin', action, entity, detail, ip: '10.20.1.15', branch: 'Udumalpet', risk });
   }
+  /** Demo message log. In live mode patient messages are recorded by the server, so nothing is faked here. */
   notify(channel: Channel, type: NotificationMsg['type'], patientId: string, message: string) {
+    if (LIVE) return;
     const p = this.patient(patientId);
     this.db.notifications.unshift({ id: this.uid('NT'), time: this.nowStamp(), channel, type, to: p ? `${p.name} · ${p.mobile}` : 'Unknown', patientId, message, status: 'Sent' });
     setTimeout(() => { const n = this.db.notifications[0]; if (n && n.status === 'Sent') { n.status = 'Delivered'; this.changed(); } }, 2500);
   }
   inboxPush(title: string, body: string, icon: string, tone: 'g' | 'a' | 'r' | 'b' | 'v', link?: string) {
+    if (LIVE) return; // the server's inbox is the only one in live mode
     this.db.inbox.unshift({ id: this.uid('IN'), time: this.nowStamp(), title, body, read: false, link, icon, tone });
   }
   raiseAlert(a: Omit<Alert, 'id' | 'time' | 'status'>) {

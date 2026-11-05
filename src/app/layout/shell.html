@@ -66,7 +66,7 @@
         <button class="iconbtn" (click)="noteOpen.set(!noteOpen())" aria-label="Notifications"><lucide-icon name="bell" [size]="18"></lucide-icon>@if (unread()) {<span class="dot"></span>}</button>
         @if (noteOpen()) {
           <div class="notes" role="dialog" aria-label="Notifications">
-            <header><b>Notifications</b><span class="sim">In-app · simulated</span><button class="linkbtn small" (click)="markAllRead()">Mark all read</button></header>
+            <header><b>Notifications</b>@if (!session.live) {<span class="sim">In-app · simulated</span>}<button class="linkbtn small" (click)="markAllRead()">Mark all read</button></header>
             @for (n of store.db.inbox.slice(0, 7); track n.id) {
               <button class="ni" [class.unread]="!n.read" (click)="openNote(n)"><span class="ic st {{ n.tone }}"><lucide-icon [name]="n.icon" [size]="15"></lucide-icon></span><span><b>{{ n.title }}</b><em>{{ n.body }}</em><small>{{ n.time.slice(11) }}</small></span></button>
             }

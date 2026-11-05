@@ -73,7 +73,9 @@ class RadiologyTest {
     desk1 = staff("rd-desk1@test.local", "receptionist", "BR1");
     doc1 = staff("rd-doc1@test.local", "doctor", "BR1");
     db.sql("insert into department (id, branch_id, name) values ('DP1', 'BR1', 'General medicine') on conflict do nothing").update();
-    db.sql("insert into doctor (id, branch_id, dept_id, name) values ('D01', 'BR1', 'DP1', 'Dr. Test Doctor') on conflict do nothing").update();
+    db.sql("insert into doctor (id, branch_id, dept_id, name) values ('D01', 'BR1', 'DP1', 'Dr. Test Doctor')"
+        // Another test class may already have a D01 in this database under a different name.
+        + " on conflict (id) do update set branch_id = excluded.branch_id, dept_id = excluded.dept_id, name = excluded.name").update();
     patient = body(mvc.perform(as(post("/api/patients"), desk1).content("""
         {"name":"Imaging Patient","dob":"1975-04-05","gender":"Female","mobile":"+91 90000 33333","consent":"Given"}"""))
         .andExpect(status().isCreated()).andReturn()).get("id").asText();
