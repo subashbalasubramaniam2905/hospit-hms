@@ -42,7 +42,26 @@ public class DashboardService {
       int doctorsTotal, int doctorsAvailable, List<String> runningLateDepts,
       int openAlerts, int criticalAlerts,
       List<Hour> hourly, List<Month> revenue12m, List<DeptRow> departments, List<DoctorToday> doctors, List<Upcoming> upcoming,
-      Mine me) {}
+      Mine me, Wards wards) {}
+
+  /** Inpatient beds and the emergency department, from the IPD and ER modules. */
+  public record Wards(int beds, int occupied, int available, int icuBeds, int icuOccupied, int admittedToday, int dischargePlanned,
+                      int erActive, int erRed) {}
+
+  Wards wards(String[] br, LocalDate t) {
+    String beds = " from bed b join ward w on w.id = b.ward_id where b.active and w.active and " + Scope.in("w");
+    int total = count("select count(*)" + beds, Map.of(), br);
+    int occ = count("select count(*)" + beds + " and b.status = 'Occupied'", Map.of(), br);
+    int avail = count("select count(*)" + beds + " and b.status = 'Available'", Map.of(), br);
+    int icu = count("select count(*)" + beds + " and w.type = 'ICU'", Map.of(), br);
+    int icuOcc = count("select count(*)" + beds + " and w.type = 'ICU' and b.status = 'Occupied'", Map.of(), br);
+    var from = scope.startOf(t); var to = scope.startOf(t.plusDays(1));
+    int admitted = count("select count(*) from admission a where a.admitted_at >= :f and a.admitted_at < :t and " + Scope.in("a"), Map.of("f", from, "t", to), br);
+    int planned = count("select count(*) from admission a where a.status = 'Discharge planned' and " + Scope.in("a"), Map.of(), br);
+    int er = count("select count(*) from er_case e where e.status in ('Waiting','Under treatment','Observation') and " + Scope.in("e"), Map.of(), br);
+    int red = count("select count(*) from er_case e where e.status in ('Waiting','Under treatment','Observation') and e.triage = 'Red' and " + Scope.in("e"), Map.of(), br);
+    return new Wards(total, occ, avail, icu, icuOcc, admitted, planned, er, red);
+  }
 
   public Dashboard get(String branch) {
     String[] br = scope.branches(branch);
@@ -149,7 +168,7 @@ public class DashboardService {
         collected, outstanding, outstandingCount, pharmacy,
         labAwait, labProc, labVerify, labAwait + labProc + labVerify, labCritical,
         rx, lowStock, nearExpiry, claimsReview, claimDrafts, unbilledCons, unbilledLab, fuDue, fuOverdue,
-        docsTotal, docsAvail, late, openAlerts, critAlerts, hourly, months, depts, doctors, upcoming, mine(t));
+        docsTotal, docsAvail, late, openAlerts, critAlerts, hourly, months, depts, doctors, upcoming, mine(t), wards(br, t));
   }
 
   /** OPD visits, completions, consultation revenue and the average wait from arrival to the doctor, by department. */

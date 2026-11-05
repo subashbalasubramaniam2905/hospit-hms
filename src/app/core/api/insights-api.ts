@@ -17,6 +17,8 @@ export interface SDashboard {
   doctors: { doctorId: string; name: string; deptId: string; status: string; booked: number; left: number }[];
   upcoming: { id: string; patientId: string; patientName: string; doctorId: string; time: string; status: string; token?: string; type: string }[];
   me?: { doctorId: string; patientsToday: number; completed: number; waiting: number; resultsToReview: number; followUpsDue: number; nextPatientId?: string; nextPatientName?: string };
+  /** Inpatient beds and emergency, from the IPD and ER modules. */
+  wards: { beds: number; occupied: number; available: number; icuBeds: number; icuOccupied: number; admittedToday: number; dischargePlanned: number; erActive: number; erRed: number };
 }
 export interface SReport { id: string; from: string; to: string; rows: Record<string, string | number>[]; labels: string[]; data: number[]; chart: 'bar' | 'line' | 'doughnut'; note?: string; }
 export interface SBranchStats { id: string; name: string; city: string; revenueMonth: number; collectedMonth: number; visitsMonth: number; doctors: number; doctorsAvailable: number; beds: number; occupancy: number; utilisation: Record<string, number>; patients: number; outstanding: number; }

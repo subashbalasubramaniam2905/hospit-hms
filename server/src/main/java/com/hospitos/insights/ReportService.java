@@ -37,7 +37,7 @@ public class ReportService {
       case "pharmacy" -> pharmacy(br, from, to);
       case "claims" -> claims(br, from, to);
       case "noshow" -> noShows(br, from, to, dept);
-      default -> new Report(id, from, to, List.of(), List.of(), List.of(), "line", "Bed occupancy appears here once the inpatient module is live.");
+      default -> beds(br, from, to);
     };
   }
 
@@ -153,6 +153,27 @@ public class ReportService {
           rows.add(row("Doctor", rs.getString(1), "Booked", booked, "No-shows", ns, "Cancelled", c, "Rate %", pct(ns + c, booked)));
         });
     return chart("noshow", from, to, rows, "Doctor", "Rate %", "bar", null);
+  }
+
+  /** Occupancy now, per ward, with admissions and average stay over the period. */
+  private Report beds(String[] br, LocalDate from, LocalDate to) {
+    var rows = new ArrayList<Map<String, Object>>();
+    db.sql("""
+        select w.name, w.type, count(b.id), count(b.id) filter (where b.status = 'Occupied'), w.rate,
+               (select count(*) from admission a join bed x on x.id = a.bed_id where x.ward_id = w.id and a.admitted_at >= :f and a.admitted_at < :t),
+               (select round(avg(extract(epoch from a.discharged_at - a.admitted_at) / 86400)::numeric, 1) from admission a join bed x on x.id = a.bed_id
+                 where x.ward_id = w.id and a.discharged_at >= :f and a.discharged_at < :t)
+          from ward w left join bed b on b.ward_id = w.id and b.active
+         where w.active and""" + Scope.in("w") + """
+         group by w.id, w.name, w.type, w.rate, w.position order by w.branch_id, w.position, w.name""")
+        .param("f", scope.startOf(from)).param("t", scope.startOf(to.plusDays(1))).param("br", br)
+        .query(rs -> {
+          int beds = rs.getInt(3), occ = rs.getInt(4);
+          var stay = rs.getBigDecimal(7);
+          rows.add(row("Ward", rs.getString(1), "Type", rs.getString(2), "Beds", beds, "Occupied", occ, "Occupancy %", pct(occ, beds),
+              "Admissions", rs.getInt(6), "Average stay (days)", stay == null ? "—" : stay.toPlainString(), "Rate ₹", rs.getBigDecimal(5)));
+        });
+    return chart("beds", from, to, rows, "Ward", "Occupancy %", "bar", "Occupancy is as of now; admissions and average stay cover the period");
   }
 
   private static Report chart(String id, LocalDate from, LocalDate to, List<Map<String, Object>> rows, String labelCol, String dataCol, String type, String note) {

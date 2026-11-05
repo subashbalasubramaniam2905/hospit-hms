@@ -261,13 +261,13 @@ repeating schedules), NEWS2 leaves out consciousness and oxygen, and escalations
 
 ## API (insights and dashboard)
 
-Every figure is computed from the module tables, for the branches the user may see (`?branch=` picks one; super-admins see all when it is left out). Bed, emergency and roster figures are not included until those modules are on the server.
+Every figure is computed from the module tables, for the branches the user may see (`?branch=` picks one; super-admins see all when it is left out). Beds come from the inpatient module and emergency counts from the ER board; staff rosters are not included yet.
 
 | Endpoint | Who | Notes |
 | --- | --- | --- |
 | `GET /api/insights/dashboard?branch=` | all staff | Today's appointments, queue by step and long waits, registrations, collections, outstanding, lab, pharmacy, claims, unbilled work, follow-ups, doctors, open alerts, hourly arrivals, 12-month revenue, department performance (30 days), and the signed-in doctor's own figures. |
-| `GET /api/insights/reports/{id}?days=&deptId=&branch=` | super-admin, admin, billing, hr | `opd`, `revenue`, `doctor`, `lab` (real turnaround from sample collection to verification), `pharmacy`, `claims`, `noshow`; `beds` is empty until inpatient care is live. `days` 1–366. |
-| `GET /api/insights/branches` | admins | This month's revenue, collections, visits, outstanding, patients, doctors and OPD utilisation (booked minutes over scheduled capacity) per branch. |
+| `GET /api/insights/reports/{id}?days=&deptId=&branch=` | super-admin, admin, billing, hr | `opd`, `revenue`, `doctor`, `lab` (real turnaround from sample collection to verification), `pharmacy`, `claims`, `noshow`, `beds` (occupancy now per ward, with admissions and average stay over the period). `days` 1–366. |
+| `GET /api/insights/branches` | admins | This month's revenue, collections, visits, outstanding, patients, doctors, beds and occupancy, and OPD utilisation (booked minutes over scheduled capacity) per branch. |
 | `GET /api/insights/alerts?branch=&status=` | all staff | Raised automatically (critical lab values, STAT samples not collected after 30 minutes, low stock, expiring and expired batches, queue waits over 45 minutes, rejected claims) and resolved automatically with "Cleared automatically" when the cause goes away. |
 | `POST /api/insights/alerts/{id}/status`, `/assign`, `POST /api/insights/alerts/acknowledge-low` | all staff | `{status: Open/Acknowledged/Resolved, note}`, `{assignee}`. Audited. |
 | `GET /api/insights/followups?branch=&doctorId=`, `POST /api/insights/followups/remind` | admins, doctor, nurse, receptionist | Follow-up dates set at the end of a consultation. Booked once the patient has a later visit with the same doctor, Completed when it is done. Remind records `{ids}`; no SMS or WhatsApp gateway is connected yet. |

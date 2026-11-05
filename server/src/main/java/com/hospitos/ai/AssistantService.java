@@ -39,7 +39,7 @@ public class AssistantService {
       - Use only the figures given. If the figures do not answer the question, say what you can and cannot see. Never invent numbers.
       - You do not have patient names, records or clinical notes. Do not give diagnoses, treatment or dosing advice; for clinical
         questions say that the treating clinician decides and point to the relevant screen.
-      - Bed occupancy, emergency and staff rosters are not in the figures yet. Say so if asked.
+      - Staff rosters and operation theatre schedules are not in the figures yet. Say so if asked.
       - Money is in Indian rupees. Write amounts like ₹1,25,000 (Indian digit grouping).
       - Keep answers short: two to four plain sentences, no headings, no tables, no markdown.
       - Where it helps, suggest one practical next step (for example, which queue step to staff up).""";
@@ -95,6 +95,11 @@ public class AssistantService {
     sb.append("Follow-ups: ").append(d.followUpsOverdue()).append(" overdue, ").append(d.followUpsDue()).append(" due in the next 7 days\n");
     sb.append("Doctors: ").append(d.doctorsAvailable()).append(" of ").append(d.doctorsTotal()).append(" available")
         .append(d.runningLateDepts().isEmpty() ? "" : ", running late in " + String.join(", ", d.runningLateDepts())).append("\n");
+    var w = d.wards();
+    sb.append("Inpatient beds: ").append(w.occupied()).append(" occupied, ").append(w.available()).append(" available of ").append(w.beds())
+        .append(" (ICU ").append(w.icuOccupied()).append(" of ").append(w.icuBeds()).append(" occupied); ").append(w.admittedToday()).append(" admitted today, ")
+        .append(w.dischargePlanned()).append(" with discharge planned\n");
+    sb.append("Emergency department: ").append(w.erActive()).append(" active cases, ").append(w.erRed()).append(" triaged red\n");
     sb.append("Open alerts: ").append(d.openAlerts()).append(" (").append(d.criticalAlerts()).append(" critical)\n");
     sb.append("Departments, last 30 days (visits, completed, consultation revenue, average wait to see the doctor):\n");
     for (var r : d.departments()) {
@@ -116,6 +121,8 @@ public class AssistantService {
     if (t.matches("(?s).*(no.?show|cancel|appointment|booking).*")) return new String[] { "/appointments", "Open appointments" };
     if (t.matches("(?s).*(follow.?up|review|recall).*")) return new String[] { "/follow-ups", "Open follow-ups" };
     if (t.matches("(?s).*(alert).*")) return new String[] { "/alerts", "Open alerts" };
+    if (t.matches("(?s).*(bed|occupan|admit|ward|icu|discharg).*")) return new String[] { "/ipd/beds", "Open bed board" };
+    if (t.matches("(?s).*(emergency|casualty|\\ber\\b|triage).*")) return new String[] { "/emergency", "Open emergency" };
     if (t.matches("(?s).*(leak|unbilled|not billed).*")) return new String[] { "/revenue-leakage", "Open revenue leakage" };
     return new String[] { null, null };
   }
@@ -124,8 +131,13 @@ public class AssistantService {
   static String rules(String q, DashboardService.Dashboard d) {
     String t = q.toLowerCase(Locale.ROOT);
     int[] s = d.queueByStep();
-    if (t.matches("(?s).*(bed|occupan|admit|ward|icu).*"))
-      return "Bed and ward figures are not on the server yet, so I can't count free beds. The inpatient module will add them.";
+    var w = d.wards();
+    if (t.matches("(?s).*(emergency|casualty|\\ber\\b|triage).*"))
+      return w.erActive() + " patients are in the emergency department, " + w.erRed() + " of them triaged red.";
+    if (t.matches("(?s).*(bed|occupan|admit|ward|icu|discharg).*"))
+      return w.beds() == 0 ? "No inpatient beds are set up for these branches yet." :
+          w.available() + " of " + w.beds() + " beds are available and " + w.occupied() + " are occupied (ICU " + w.icuOccupied() + " of " + w.icuBeds() + "). "
+          + w.admittedToday() + " patients were admitted today and " + w.dischargePlanned() + " have a discharge planned.";
     if (t.matches("(?s).*(wait|queue|delay|token).*")) {
       int busiest = 0;
       for (int i = 0; i < 6; i++) if (s[i] > s[busiest]) busiest = i;
@@ -160,7 +172,7 @@ public class AssistantService {
       return d.appointments() + " appointments are booked today: " + d.checkedIn() + " checked in, " + d.completed() + " completed and " + d.toCome() + " still to come.";
     if (t.matches("(?s).*(alert).*"))
       return d.openAlerts() + " alerts are open, " + d.criticalAlerts() + " of them critical.";
-    return "Without the AI service I can answer about the queue, appointments, collections and dues, medicine stock, lab work, claims, "
+    return "Without the AI service I can answer about beds, emergency, the queue, appointments, collections and dues, medicine stock, lab work, claims, "
         + "follow-ups, unbilled services, doctors and alerts.";
   }
 }

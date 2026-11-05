@@ -56,7 +56,10 @@ public class BranchService {
       long booked = db.sql("select coalesce(sum(duration_min),0) from appointment where branch_id = :b and appt_date = :t and status not in ('Cancelled','No-show')")
           .param("b", b.id()).param("t", t).query(Long.class).single();
       int opd = capacity == 0 ? 0 : (int) Math.min(100, Math.round(booked * 100.0 / capacity));
-      return new BranchStats(b.id(), b.name(), b.city(), revenue, collected, visits, docs.size(), avail, 0, 0, Map.of("OPD", opd), patients, outstanding);
+      var bed = db.sql("select count(*), count(*) filter (where bd.status = 'Occupied') from bed bd join ward w on w.id = bd.ward_id where bd.active and w.active and w.branch_id = :b")
+          .param("b", b.id()).query((rs, n) -> new int[] { rs.getInt(1), rs.getInt(2) }).single();
+      int occupancy = bed[0] == 0 ? 0 : (int) Math.round(bed[1] * 100.0 / bed[0]);
+      return new BranchStats(b.id(), b.name(), b.city(), revenue, collected, visits, docs.size(), avail, bed[0], occupancy, Map.of("OPD", opd), patients, outstanding);
     }).toList();
   }
 

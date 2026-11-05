@@ -53,9 +53,9 @@ export class DashboardPage {
     const L = this.live();
     if (L) return {
       appts: L.appointments, visits: L.checkedIn, newRegs: L.newRegistrations, waiting: L.waiting, consulting: L.consulting, completed: L.completed,
-      labPending: L.labPending, paidToday: L.collectedToday, outstanding: L.outstanding, occ: 0, avail: 0, bedsTotal: 0,
-      lowStock, nearExpiry, er: 0, erRed: 0, docsAvail: L.doctorsAvailable, docsTotal: L.doctorsTotal, todays,
-      icu: [] as typeof beds, admissionsToday: 0, emergencyAdmits: 0,
+      labPending: L.labPending, paidToday: L.collectedToday, outstanding: L.outstanding, occ: L.wards.occupied, avail: L.wards.available, bedsTotal: L.wards.beds,
+      lowStock, nearExpiry, er: L.wards.erActive, erRed: L.wards.erRed, docsAvail: L.doctorsAvailable, docsTotal: L.doctorsTotal, todays,
+      icu: [] as typeof beds, admissionsToday: L.wards.admittedToday, emergencyAdmits: 0,
     };
     return {
       appts: todays.filter(a => a.status !== 'Cancelled').length, visits: todays.filter(a => ['Arrived', 'Waiting', 'In consultation', 'Completed'].includes(a.status)).length + db.erCases.length,
@@ -179,7 +179,7 @@ export class DashboardPage {
         { label: 'Appointments today', value: L.completed, of: L.appointments, tone: 'pri', icon: 'calendar-days', link: '/appointments', trend: `${L.toCome} to come` },
         { label: 'Patients waiting', value: L.waiting, tone: 'pink', icon: 'clock', link: '/queue', trend: `${L.consulting} in consult` },
         { label: 'Collected today', value: inrShort(L.collectedToday), tone: 'amber', icon: 'wallet', link: '/billing' },
-        { label: 'Open alerts', value: L.openAlerts, tone: 'blue', icon: 'bell-ring', link: '/alerts', trend: `${L.criticalAlerts} critical` },
+        { label: 'Beds available', value: L.wards.available, of: L.wards.beds, tone: 'blue', icon: 'bed-double', link: '/ipd/beds', trend: `${L.openAlerts} open alerts` },
       ];
       default: return null;
     }

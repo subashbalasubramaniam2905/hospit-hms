@@ -109,6 +109,11 @@ class InsightsPortalKioskTest {
     assertThat(d.get("toCome").asInt()).isEqualTo(1);
     assertThat(d.get("unbilledConsultations").asInt()).isEqualTo(1);
     assertThat(d.get("followUpsOverdue").asInt()).isEqualTo(1);
+    // Beds come from the inpatient module's wards; nobody is admitted in this test.
+    var w = d.get("wards");
+    assertThat(w.get("beds").asInt()).isPositive();
+    assertThat(w.get("available").asInt() + w.get("occupied").asInt()).isLessThanOrEqualTo(w.get("beds").asInt());
+    assertThat(w.get("occupied").asInt()).isZero();
     assertThat(d.get("doctorsTotal").asInt()).isEqualTo(2);
     assertThat(d.get("revenue12m")).hasSize(12);
     assertThat(d.get("hourly").get(0).get("hour").asInt()).isEqualTo(8);
@@ -306,6 +311,9 @@ class InsightsPortalKioskTest {
     assertThat(a.get("source").asText()).isEqualTo("rules");
     assertThat(a.get("answer").asText()).contains("in the OPD queue");
     assertThat(a.get("link").asText()).isEqualTo("/queue");
+    var beds = ok(post("/api/ai/ask").content("{\"question\":\"How many beds are free?\"}"), admin);
+    assertThat(beds.get("answer").asText()).contains("beds are available");
+    assertThat(beds.get("link").asText()).isEqualTo("/ipd/beds");
 
     when(ai.enabled()).thenReturn(true);
     when(ai.name()).thenReturn("test-model");

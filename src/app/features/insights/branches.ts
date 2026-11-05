@@ -13,7 +13,7 @@ import { InsightsApi } from '../../core/api/insights-api';
   .ut { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; font-size:13px } .ut .bar { height:8px; background:var(--ground); border-radius:4px; overflow:hidden } .ut .bar i { display:block; height:100%; background:var(--pri); border-radius:4px }`],
   template: `
   <div class="page">
-    <cf-page-head title="Branches" [crumbs]="['Insights', 'Multi-branch']" [sub]="isLive ? 'Compare branches this month, from billing, appointments and doctor schedules. Bed figures appear once the inpatient module is live.' : 'Compare branches this month. Udumalpet figures update from live demo data; other branches use sample figures.'"></cf-page-head>
+    <cf-page-head title="Branches" [crumbs]="['Insights', 'Multi-branch']" [sub]="isLive ? 'Compare branches this month, from billing, appointments, doctor schedules and the bed board.' : 'Compare branches this month. Udumalpet figures update from live demo data; other branches use sample figures.'"></cf-page-head>
     <div class="grid">
       <cf-stat class="c3" label="Revenue this month" [value]="(totalRev() | inr:true)" icon="indian-rupee" tone="pri" sub="All branches"></cf-stat>
       <cf-stat class="c3" label="OPD visits" [value]="fmtN(totalVisits())" icon="users" tone="blue"></cf-stat>
