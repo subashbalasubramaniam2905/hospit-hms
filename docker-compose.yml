@@ -1,0 +1,38 @@
+# Local HospitOS: PostgreSQL + the Spring Boot API, with fictional departments and doctors.
+#   docker compose up --build      (first run takes a few minutes)
+#   then in another terminal:      npm install && npm run start:live
+#   open http://localhost:4201 and sign in with ADMIN_EMAIL / ADMIN_PASSWORD below.
+# Data is kept in the "hospitos-db" volume. `docker compose down -v` wipes it.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: hospit
+      POSTGRES_USER: hospit
+      POSTGRES_PASSWORD: hospit
+    ports: ["5432:5432"]
+    volumes: ["hospitos-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hospit"]
+      interval: 3s
+      retries: 20
+
+  api:
+    build: ./server
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/hospit
+      DATABASE_USER: hospit
+      DATABASE_PASSWORD: hospit
+      FLYWAY_LOCATIONS: classpath:db/migration,classpath:db/sample
+      JWT_SECRET: local-only-secret-not-for-real-use-0123456789
+      CORS_ORIGINS: http://localhost:4200,http://localhost:4201
+      ADMIN_EMAIL: admin@hospitos.local
+      ADMIN_PASSWORD: ChangeMe12345
+      ADMIN_NAME: Super Admin
+      TZ: Asia/Kolkata
+    ports: ["8080:8080"]
+
+volumes:
+  hospitos-db:

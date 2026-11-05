@@ -34,7 +34,31 @@ The app runs in one of two modes, set in `public/config.js` (served as `config.j
 - **Demo mode** (`apiUrl: ''`, the default, and what GitHub Pages serves): fictional data in this browser, role picker, everything below.
 - **Live mode** (`apiUrl: 'https://your-api-host'`): real staff sign-in against the HospitOS server in `server/`, forced change of temporary passwords, and patients (search, registration with duplicate check, profile, edits) stored on the server with every view and change audited. Real patient records are never written to browser storage. Other modules still show sample data until they are connected. The kiosk does not register patients in live mode.
 
-To try live mode locally: start the server (see `server/README.md`), set `CORS_ORIGINS=http://localhost:4200`, set `apiUrl: 'http://localhost:8080'` in `public/config.js`, and run `npm start`. Sign in with the `ADMIN_EMAIL` account and create staff with `POST /api/users`.
+## Run HospitOS on your computer (live mode)
+
+**Option A, with Docker (easiest).** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and [Node.js 20+](https://nodejs.org), then from the repository folder:
+
+```bash
+docker compose up --build        # database + API on http://localhost:8080 (first run takes a few minutes)
+# in a second terminal
+npm install
+npm run start:live               # app on http://localhost:4201
+```
+
+Open http://localhost:4201 and sign in as `admin@hospitos.local` / `ChangeMe12345` (set in `docker-compose.yml`; change it there before the first start). Create staff accounts with `POST /api/users` (see `server/README.md`). Fictional departments and doctors are loaded so booking works; data persists in a Docker volume, and `docker compose down -v` wipes it.
+
+**Option B, without Docker.** Install Java 21, Maven and PostgreSQL 16. Create a database and user named `hospit` with password `hospit`, then:
+
+```bash
+cd server
+FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/sample ADMIN_EMAIL=admin@hospitos.local ADMIN_PASSWORD=ChangeMe12345 mvn spring-boot:run
+# in a second terminal, from the repository folder
+npm install && npm run start:live
+```
+
+(On Windows PowerShell set the variables with `$env:ADMIN_EMAIL="..."` on separate lines first.)
+
+`npm start` on port 4200 still opens the demo with fictional data.
 
 ## Signing in (demo mode)
 

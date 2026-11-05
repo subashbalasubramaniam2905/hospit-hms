@@ -5,11 +5,13 @@
     "icons": "node gen-icons.mjs",
     "prestart": "node gen-icons.mjs",
     "start": "ng serve",
+    "start:live": "ng serve --port 4201",
     "prebuild": "node gen-icons.mjs",
     "build": "ng build",
     "build:demo": "node gen-icons.mjs && ng build --base-href ./",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "prestart:live": "node gen-icons.mjs"
   },
   "prettier": {
     "printWidth": 100,
