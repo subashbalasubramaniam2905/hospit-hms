@@ -185,6 +185,33 @@ Study flow: Ordered → Scheduled → In progress → Awaiting report → Report
 | `POST /api/radiology/orders/{id}/reopen`, `/verify`, `/cancel` | radiologist, admins (cancel also doctor, receptionist) | Cancel takes `{reason}`. |
 | `GET /api/radiology/orders/{id}/report` | radiology readers | The report with patient details and up to five earlier verified studies of the same modality. |
 
+## API (emergency)
+
+Package `com.hospitos.emergency`, Flyway V60. Every branch has ten bays (Resus 1–2, Bay 1–6, Minor 1–2); a bay holds one open case at a time, and an empty bay means the corridor. Times are clinic time.
+
+| Endpoint | Who | What |
+|---|---|---|
+| `GET /api/er/bays?branchId=`, `GET /api/er/cases?branchId=` | doctor, nurse, receptionist, admins | Bays with the case in each; the board (open cases plus cases closed today). `?patientId=` lists one patient's ER visits instead. |
+| `POST /api/er/cases` | same | `{branchId, patientId?, age, gender, mode, triage, complaint, bay?, doctorId?, vitals:{bp,hr,spo2,gcs,temp}}`. Ids are `ER-910`... Without `patientId` the case is an unknown patient. The vitals rule's suggestion is stored next to the chosen triage; Red triage is written to the audit trail as an alert. |
+| `PATCH /api/er/cases/{id}` | doctor, nurse, admins | Partial: `triage`, `doctorId`, `bay` (empty = corridor), `vitals`. Each change goes on the case timeline. |
+| `POST /api/er/cases/{id}/orders` | doctor, nurse, admins | `{name}`. Moves a waiting case to Under treatment. Orders are recorded on the case only; they do not create lab or radiology orders yet. |
+| `POST /api/er/cases/{id}/link` | front desk and clinical | `{patientId}`: links an unknown patient to a registered record (also after the case has closed). |
+| `POST /api/er/cases/{id}/status` | doctor, nurse, admins | `{status: Under treatment, Observation, Discharged or Referred, note?}`. Discharged and Referred close the case and free the bay. |
+| `POST /api/er/cases/{id}/admitted` | front desk and clinical | `{admissionId?}`. Called by the admission screen after the inpatient admission is created (`/ipd/admit?erCase=`). Needs a linked patient, closes the case, frees the bay; safe to call twice. |
+
+## API (operation theatre)
+
+Package `com.hospitos.ot`, Flyway V61. Each branch has OT-1 to OT-3.
+
+| Endpoint | Who | What |
+|---|---|---|
+| `GET /api/ot/rooms?branchId=`, `GET /api/ot/surgeries?branchId=&date=` (or `from`/`to`, at most two months; or `patientId`) | doctor, nurse, receptionist, admins | Bookings with patient name, allergies, checklist and timeline. Ids are `OT0700`... |
+| `POST /api/ot/surgeries` | doctor, receptionist, admins | `{branchId, patientId, procedure, surgeonId, room, date, start "HH:mm", durationMin 15–720, anaesthesia, anaesthetist}`. Refused (409) if the room or the surgeon already has an overlapping booking; a database exclusion constraint also blocks overlapping room bookings made at the same moment. No past dates. |
+| `POST /api/ot/surgeries/{id}/checklist` | doctor, nurse, admins | `{item, done}` for the seven pre-op safety items. Items cannot be unticked once surgery has started. |
+| `POST /api/ot/surgeries/{id}/advance` | doctor, nurse, admins | `{from}`: Scheduled → Pre-op → In progress → Recovery → Completed. Starting surgery needs every checklist item; a stale `from` is refused. |
+| `POST /api/ot/surgeries/{id}/cancel` | doctor, receptionist, admins | `{reason?}`, before surgery starts. Releases the slot. |
+| `PUT /api/ot/surgeries/{id}/notes` | doctor, nurse, admins | `{postOpNotes}` once in recovery. |
+
 ## API (administration)
 
 | Method and path | Who | What |
