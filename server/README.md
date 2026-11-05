@@ -70,7 +70,8 @@ daily break in `doctor.break_start/break_end` (13:00 to 14:00 by default).
 
 - **Package:** `com.hospitos.<module>` (for example `com.hospitos.appointments`). Controllers under `/api/<module>`.
 - **Database:** plain SQL through `JdbcClient`. Flyway versions are reserved per module so parallel work never collides:
-  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49, radiology V50–V59.
+  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49,
+  radiology V50–V59, emergency and OT V60–V69, inpatients V70–V79, administration, staff, stores and notifications V80–V89, insights V90–V99.
   Use snake_case. Use `text` ids where the Angular model already has readable ids, `uuid` otherwise.
 - **Keys you will reference:** `patient(id text)` (UHID), `branch(id text)` (`BR1` Udumalpet, `BR2` Pollachi, `BR3` Palani),
   `department(id text)`, `doctor(id text, dept_id, user_id → app_user)`, `app_user(id uuid)`.
