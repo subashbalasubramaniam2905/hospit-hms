@@ -22,15 +22,12 @@ import { ToastService } from '../../core/services/toast.service';
           <li><lucide-icon name="building-2" [size]="18"></lucide-icon>Single-doctor clinics to multi-branch groups</li>
         </ul>
       </div>
-      <svg class="art" viewBox="0 0 320 220" aria-hidden="true">
-        <circle cx="210" cy="120" r="96" fill="rgba(255,255,255,.08)"/>
-        <rect x="150" y="118" width="132" height="102" rx="44" fill="#fff"/><path d="M196 118h44l-22 36z" fill="var(--pri-soft)"/>
-        <circle cx="218" cy="84" r="32" fill="#f2c9a5"/><path d="M186 80c0-24 15-34 32-34s34 10 32 36c-6-11-19-15-32-15s-26 4-32 13z" fill="#3a2a22"/>
-        <path d="M184 132c-8 20-6 38 6 44" stroke="var(--pri-2)" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="192" cy="178" r="6" fill="var(--pri-2)"/>
-        <rect x="234" y="140" width="44" height="58" rx="6" fill="var(--blue)" transform="rotate(-10 256 169)"/><rect x="241" y="151" width="28" height="4" rx="2" fill="#fff" transform="rotate(-10 256 169)"/><rect x="241" y="162" width="20" height="4" rx="2" fill="#fff" transform="rotate(-10 256 169)"/>
-        <rect x="40" y="60" width="96" height="60" rx="14" fill="rgba(255,255,255,.16)"/><path d="M54 96h14l6-14 8 24 6-10h34" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        <rect x="60" y="138" width="62" height="40" rx="12" fill="rgba(255,255,255,.16)"/><path d="M91 148v20M81 158h20" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
-      </svg>
+      <figure class="docfig" aria-hidden="true">
+        <span class="halo"></span>
+        <span class="frame"><img src="img/doctor-portrait.webp" alt="" width="720" height="1189" decoding="async" fetchpriority="high"></span>
+        <span class="float f1"><lucide-icon name="activity" [size]="16"></lucide-icon><span><b>Live queue</b><small>Every department, one view</small></span></span>
+        <span class="float f2"><lucide-icon name="shield-check" [size]="16"></lucide-icon><span><b>Rx checked</b><small>Allergy and dose alerts</small></span></span>
+      </figure>
     </section>
     <section class="panel">
       <div class="topline">@if (live) { <span class="demo-tag">Secure sign-in</span> } @else { <span class="demo-tag">Prototype · fictional data only</span> }<button class="iconbtn" (click)="theme.toggle()" aria-label="Toggle dark mode"><lucide-icon [name]="theme.dark() ? 'sun' : 'moon'" [size]="18"></lucide-icon></button></div>
@@ -58,14 +55,23 @@ import { ToastService } from '../../core/services/toast.service';
   .brand{display:flex;gap:10px;align-items:center;font-weight:800;font-size:19px;position:relative}.brand svg{width:30px;height:30px}
   .pitch{position:relative;display:flex;flex-direction:column;gap:14px;max-width:46ch}.pitch h1{font-size:clamp(26px,3vw,36px);font-weight:800;letter-spacing:-.01em}
   .pitch p{opacity:.88;font-size:15px}.pitch ul{list-style:none;padding:0;margin:6px 0 0;display:flex;flex-direction:column;gap:10px}.pitch li{display:flex;gap:10px;align-items:center;font-weight:600}
-  .art{position:relative;margin-top:auto;width:min(420px,100%);align-self:flex-end}
+  .docfig{position:relative;margin:auto 0 0;align-self:flex-end;width:min(300px,58%);aspect-ratio:300/430;margin-right:clamp(0px,4vw,48px)}
+  .docfig .halo{position:absolute;inset:-14% -22% -4%;border-radius:50%;background:radial-gradient(closest-side,rgba(255,255,255,.26),rgba(255,255,255,.07) 62%,transparent);filter:blur(6px)}
+  .docfig::before{content:"";position:absolute;inset:-9px -9px 0;border-radius:999px 999px 0 0;background:rgba(255,255,255,.12);box-shadow:0 -10px 60px -10px rgba(0,0,0,.35)}
+  .docfig .frame{position:absolute;inset:0;clip-path:inset(0 round 999px 999px 0 0);background:linear-gradient(170deg,#ffffff 0%,#eef8f5 55%,#d4ece6 100%)}
+  .docfig img{position:absolute;left:0;top:0;width:100%;height:auto;mix-blend-mode:multiply}
+  .float{position:absolute;display:flex;gap:10px;align-items:center;padding:10px 14px 10px 10px;border-radius:14px;background:rgba(255,255,255,.94);color:#173a33;box-shadow:0 14px 34px -12px rgba(0,0,0,.45);font-size:13px;line-height:1.25;white-space:nowrap}
+  .float lucide-icon{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#e3f2ee;color:#1b6457;flex:none}
+  .float b{display:block;font-weight:800}.float small{color:#5b706b;font-size:12px}
+  .float.f1{left:-34%;top:30%}.float.f2{right:-18%;top:62%}
+  :host-context(html.dark) .docfig .frame{filter:brightness(.93)}
   .panel{display:flex;flex-direction:column;padding:calc(24px + env(safe-area-inset-top,0px)) max(24px,env(safe-area-inset-right,0px)) 24px 24px}
   .topline{display:flex;justify-content:space-between;align-items:center}
   .form{margin:auto;width:min(400px,100%);display:flex;flex-direction:column;gap:16px;padding:24px 0}.form h2{font-size:26px;font-weight:800;margin-bottom:6px}
   .pw{position:relative}.pw .linkbtn{position:absolute;right:12px;top:50%;transform:translateY(-50%)}
   .banner.err{background:var(--red-soft);color:var(--red);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600}
   .or{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:12px}.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--line)}
-  @media(max-width:900px){.wrap{grid-template-columns:1fr}.hero{padding-bottom:24px;padding-right:max(24px,env(safe-area-inset-right,0px));padding-left:max(24px,env(safe-area-inset-left,0px))}.art{display:none}}`]
+  @media(max-width:900px){.wrap{grid-template-columns:1fr}.hero{padding-bottom:24px;padding-right:max(24px,env(safe-area-inset-right,0px));padding-left:max(24px,env(safe-area-inset-left,0px))}.hero{padding-top:calc(24px + env(safe-area-inset-top,0px))}.brand{min-height:64px}.docfig{position:absolute;top:calc(20px + env(safe-area-inset-top,0px));right:max(24px,env(safe-area-inset-right,0px));width:64px;height:64px;aspect-ratio:auto;margin:0}.docfig .halo,.float{display:none}.docfig::before{inset:-4px;border-radius:50%;background:rgba(255,255,255,.18);box-shadow:0 10px 24px -8px rgba(0,0,0,.45)}.docfig .frame{clip-path:circle(50%)}.docfig img{width:200%;left:-50%;top:2%}}`]
 })
 export class LoginPage {
   theme = inject(ThemeService); toast = inject(ToastService); router = inject(Router);
