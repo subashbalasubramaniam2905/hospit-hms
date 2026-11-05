@@ -29,3 +29,10 @@ hospitos:
     name: ${ADMIN_NAME:Super Admin}
   # Clinic time zone for appointments and the queue.
   timezone: ${HOSPITOS_TIMEZONE:Asia/Kolkata}
+  # AI assistant. Without an API key it answers from fixed rules. The key stays on the server.
+  ai:
+    api-key: ${ANTHROPIC_API_KEY:}
+    model: ${HOSPITOS_AI_MODEL:claude-opus-5-5}
+  # Patient portal sign-in codes. No SMS gateway is connected yet; PORTAL_DEV_OTP=true returns the code in the response (local only).
+  portal:
+    dev-otp: ${PORTAL_DEV_OTP:false}

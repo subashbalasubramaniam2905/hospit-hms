@@ -8,7 +8,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 public class StaffAuthentication extends JwtAuthenticationToken {
   private final CurrentUser user;
   public StaffAuthentication(Jwt jwt, CurrentUser user) {
-    super(jwt, List.of(new SimpleGrantedAuthority("ROLE_" + user.role())), user.id().toString());
+    super(jwt, List.of(new SimpleGrantedAuthority("ROLE_" + user.role())), user.id() == null ? user.name() : user.id().toString());
     this.user = user;
   }
   public CurrentUser user() { return user; }
