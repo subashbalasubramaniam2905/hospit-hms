@@ -1,8 +1,11 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { SHARED, fmtDate } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportService } from '../../core/services/export.service';
+import { SessionService } from '../../core/services/session.service';
+import { LIVE } from '../../core/api/api-config';
+import { InsightsApi } from '../../core/api/insights-api';
 
 type ReportId = 'opd' | 'revenue' | 'doctor' | 'lab' | 'pharmacy' | 'beds' | 'claims' | 'noshow';
 interface Report { rows: Record<string, string | number>[]; labels: string[]; data: number[]; chart: 'bar' | 'line' | 'doughnut'; money?: string[]; note?: string; }
@@ -12,8 +15,8 @@ interface Report { rows: Record<string, string | number>[]; labels: string[]; da
   styles: [`.lay { display:grid; grid-template-columns:250px minmax(0,1fr); gap:16px; align-items:start } .rl button { display:flex; gap:10px; align-items:center; width:100%; padding:10px 12px; border:0; border-radius:10px; background:none; text-align:left; font-weight:600; color:var(--fg) } .rl button:hover { background:var(--ground) } .rl button.on { background:var(--pri-soft); color:var(--pri) } @media (max-width:960px){ .lay { grid-template-columns:minmax(0,1fr) } }`],
   template: `
   <div class="page">
-    <cf-page-head title="Reports" [crumbs]="['Insights', 'Reports']" sub="Operational and financial reports from the demo data. Export to CSV or print.">
-      <button class="btn ghost" (click)="schedule()"><lucide-icon name="calendar-clock" [size]="16"></lucide-icon>Schedule email</button>
+    <cf-page-head title="Reports" [crumbs]="['Insights', 'Reports']" [sub]="isLive ? 'Operational and financial reports from the hospital’s records. Export to CSV or print.' : 'Operational and financial reports from the demo data. Export to CSV or print.'">
+      @if (!isLive) {<button class="btn ghost" (click)="schedule()"><lucide-icon name="calendar-clock" [size]="16"></lucide-icon>Schedule email</button>}
       <button class="btn ghost" (click)="printer.print()"><lucide-icon name="printer" [size]="16"></lucide-icon>Print</button>
       <button class="btn" (click)="exportCsv()"><lucide-icon name="download" [size]="16"></lucide-icon>Export CSV</button>
     </cf-page-head>
@@ -23,11 +26,11 @@ interface Report { rows: Record<string, string | number>[]; labels: string[]; da
         <div class="card" style="padding:12px 16px"><div class="toolbar">
           <div class="seg">@for (p of periods; track p.d) {<button [class.on]="days() === p.d" (click)="days.set(p.d)">{{ p.label }}</button>}</div>
           <select class="inp" style="width:auto" [ngModel]="dept()" (ngModelChange)="dept.set($event)" aria-label="Department"><option value="">All departments</option>@for (d of store.db.departments; track d.id) {<option [value]="d.id">{{ d.name }}</option>}</select>
-          <select class="inp" style="width:auto" aria-label="Branch" [ngModel]="branch()" (ngModelChange)="branch.set($event)">@for (b of store.db.branches; track b.id) {<option [value]="b.id">{{ b.name }}</option>}</select>
+          <select class="inp" style="width:auto" aria-label="Branch" [ngModel]="branch()" (ngModelChange)="branch.set($event)">@for (b of branches(); track b.id) {<option [value]="b.id">{{ b.name }}</option>}</select>
           <span class="spacer"></span><span class="muted small">{{ fromLabel() }} – today</span>
         </div></div>
         <div class="card">
-          <div class="card-h"><h3>{{ title() }}</h3>@if (rep().note) {<span class="r muted small">{{ rep().note }}</span>}</div>
+          <div class="card-h"><h3>{{ title() }}</h3>@if (loading()) {<span class="muted small">Loading…</span>}@if (rep().note) {<span class="r muted small">{{ rep().note }}</span>}</div>
           @if (rep().data.length) { <cf-chart [type]="rep().chart" [labels]="rep().labels" [datasets]="[{ label: title(), data: rep().data, backgroundColor: rep().chart === 'doughnut' ? palette : '--pri', borderColor: '--pri', borderRadius: 6, tension: .3, fill: rep().chart === 'line' }]" [height]="250" [legend]="rep().chart === 'doughnut'"></cf-chart> }
         </div>
         <div class="card">
@@ -47,7 +50,22 @@ export class ReportsPage {
   ];
   periods = [{ d: 7, label: '7 days' }, { d: 30, label: '30 days' }, { d: 90, label: '90 days' }];
   palette = ['--pri', '--blue', '--amber', '--violet', '--pink', '--green', '--red'];
-  rid = signal<ReportId>('opd'); days = signal(30); dept = signal(''); branch = signal('BR1');
+  session = inject(SessionService); readonly isLive = LIVE; private api = inject(InsightsApi);
+  rid = signal<ReportId>('opd'); days = signal(30); dept = signal(''); branch = signal(this.session.branchId());
+  /** Branches this account may pick; in live mode the server refuses others. */
+  branches = computed(() => { const a = this.session.allowedBranches(); return this.store.db.branches.filter(b => a === null || a.includes(b.id)); });
+  /** Live mode: the report the server computed for the current filters. */
+  private live = signal<Report | null>(null); loading = signal(false);
+  constructor() {
+    if (!LIVE) return;
+    effect(() => { const id = this.rid(), d = this.days(), dept = this.dept(), br = this.branch(); untracked(() => this.load(id, d, dept, br)); });
+  }
+  private async load(id: ReportId, d: number, dept: string, br: string) {
+    this.loading.set(true);
+    try { const r = await this.api.report(id, d, dept || undefined, br || undefined); if (id === this.rid()) this.live.set({ rows: r.rows, labels: r.labels, data: r.data, chart: r.chart, note: r.note }); }
+    catch { this.toast.err('Could not load the report'); this.live.set({ rows: [], labels: [], data: [], chart: 'bar' }); }
+    finally { this.loading.set(false); }
+  }
   since = computed(() => this.store.day(-this.days() + 1));
   fromLabel = computed(() => fmtDate(this.since(), true));
   title = computed(() => this.list.find(r => r.id === this.rid())!.label);
@@ -55,6 +73,7 @@ export class ReportsPage {
   isNum(c: string) { return /count|visits|amount|revenue|₹|%|hours|beds|claims|value|qty|rate|tat/i.test(c); }
   fmt(c: string, v: string | number) { return typeof v === 'number' && /₹|revenue|amount|value/i.test(c) ? '₹' + new Intl.NumberFormat('en-IN').format(Math.round(v)) : v; }
   rep = computed<Report>(() => {
+    if (LIVE) return this.live() ?? { rows: [], labels: [], data: [], chart: 'bar' };
     this.store.rev(); const s = this.store, since = this.since(), dept = this.dept();
     const appts = s.db.appointments.filter(a => a.date >= since && a.date <= s.today() && (!dept || a.deptId === dept));
     switch (this.rid()) {

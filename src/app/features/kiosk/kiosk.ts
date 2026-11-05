@@ -1,5 +1,5 @@
 import { LIVE } from '../../core/api/api-config';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormBuilder, Validators } from '@angular/forms';
 import { SHARED } from '../../shared';
@@ -7,6 +7,12 @@ import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { Appointment, Patient } from '../../core/models';
+import { apiMessage } from '../../core/api/auth.service';
+import { KInfo, KioskApi, KMatch, KTicket } from '../../core/api/insights-api';
+
+/** What the kiosk screens show about the person at the kiosk, from demo data or the server. */
+interface Who { first: string; name: string; id: string; line: string; }
+interface Visit { id: string; doctor: string; dept: string; time: string; room: string; status: string; appt?: Appointment; }
 
 type Step = 'home' | 'find' | 'confirm' | 'token' | 'register' | 'walkin';
 
@@ -40,7 +46,7 @@ type Step = 'home' | 'find' | 'confirm' | 'token' | 'register' | 'walkin';
   template: `
   <div class="top">
     <lucide-icon name="heart-pulse" [size]="26"></lucide-icon>
-    <div><h1 style="font-size:20px;font-weight:800">Welcome to {{ store.db.config.name }}</h1><div class="small" style="opacity:.85">Self-service kiosk · demo</div></div>
+    <div><h1 style="font-size:20px;font-weight:800">Welcome to {{ isLive ? (info()?.branchName || 'HospitOS') : store.db.config.name }}</h1><div class="small" style="opacity:.85">Self-service kiosk{{ isLive ? (info() ? ' · ' + info()!.kioskName : '') : ' · demo' }}</div></div>
     <div class="r">
       <div class="seg seg2" role="group" aria-label="Language">@for (l of langs; track l) {<button [class.on]="lang() === l" (click)="lang.set(l)">{{ l }}</button>}</div>
       <button class="btn ghost sm" (click)="theme.toggle()" aria-label="Toggle theme"><lucide-icon [name]="theme.dark() ? 'sun' : 'moon'" [size]="16"></lucide-icon></button>
@@ -48,8 +54,14 @@ type Step = 'home' | 'find' | 'confirm' | 'token' | 'register' | 'walkin';
     </div>
   </div>
   <div class="wrap">
-    <div class="alert-box info"><lucide-icon name="info" [size]="16"></lucide-icon><div>Prototype kiosk. Printing, card readers and payments are simulated.@if (lang() !== 'English') { Translations are not included in the demo; screens stay in English.}</div></div>
+    @if (!isLive) {<div class="alert-box info"><lucide-icon name="info" [size]="16"></lucide-icon><div>Prototype kiosk. Printing, card readers and payments are simulated.@if (lang() !== 'English') { Translations are not included in the demo; screens stay in English.}</div></div>}
+    @else if (lang() !== 'English') {<div class="alert-box info"><lucide-icon name="info" [size]="16"></lucide-icon><div>Translations are not ready yet; screens stay in English.</div></div>}
 
+    @if (isLive && !kiosk.paired()) {
+      <div><h2>Set up this kiosk</h2><p class="lead">An administrator creates the kiosk under Admin, Integrations and gets an 8-character pairing code. Enter it here.</p></div>
+      <div class="field" style="max-width:360px"><label>Pairing code</label><input class="inp xl" [(ngModel)]="pairCode" maxlength="12" autocomplete="off" style="text-transform:uppercase;letter-spacing:.1em"></div>
+      <div class="row"><button class="btn ghost xl" (click)="exit()">Staff sign in</button><button class="btn xl" [disabled]="pairCode.trim().length < 6 || busy()" (click)="pair()">Pair kiosk</button></div>
+    } @else {
     @switch (step()) {
       @case ('home') {
         <div><h2>How can we help you today?</h2><p class="lead">Tap an option to begin.</p></div>
@@ -58,22 +70,23 @@ type Step = 'home' | 'find' | 'confirm' | 'token' | 'register' | 'walkin';
           <button class="tile" (click)="go('walkin')"><span class="ic" style="background:var(--blue-soft);color:var(--blue)"><lucide-icon name="footprints" [size]="26"></lucide-icon></span><b>Walk-in visit</b><span>See a doctor today without a booking</span></button>
           <button class="tile" (click)="go('register')"><span class="ic" style="background:var(--violet-soft);color:var(--violet)"><lucide-icon name="user-plus" [size]="26"></lucide-icon></span><b>New patient</b><span>Register in under two minutes</span></button>
         </div>
-        <div class="card row" style="gap:16px"><lucide-icon name="ticket" [size]="22"></lucide-icon><div class="grow"><b>Now serving</b><div class="muted small">@for (q of serving(); track q.token) {{{ q.token }} · {{ store.dept(q.deptId)?.name }}@if (!$last) {,&nbsp;}}</div></div><a class="linkbtn" routerLink="/portal">Use the patient app instead</a></div>
+        <div class="card row" style="gap:16px"><lucide-icon name="ticket" [size]="22"></lucide-icon><div class="grow"><b>Now serving</b><div class="muted small">@for (q of serving(); track q.token) {{{ q.token }} · {{ q.dept }}@if (!$last) {,&nbsp;}} @empty {No one is with a doctor right now}</div></div><a class="linkbtn" routerLink="/portal">Use the patient app instead</a></div>
       }
       @case ('find') {
         <div><h2>Find your booking</h2><p class="lead">Enter your mobile number or UHID.</p></div>
         <div class="seg seg2"><button [class.on]="mode() === 'mobile'" (click)="mode.set('mobile'); entry.set('')">Mobile number</button><button [class.on]="mode() === 'uhid'" (click)="mode.set('uhid'); entry.set('')">UHID</button></div>
         <div class="entry" aria-live="polite">{{ mode() === 'uhid' ? 'HS-' : '+91 ' }}{{ entry() || '…' }}</div>
         <div class="keypad">@for (k of keys; track k) {<button (click)="press(k)" [attr.aria-label]="k === '⌫' ? 'Delete' : k">{{ k }}</button>}</div>
-        <div class="row"><button class="btn ghost xl" (click)="go('home')">Back</button><button class="btn xl" (click)="find()">Find my appointment</button><button class="linkbtn" (click)="demoFill()">Fill demo number</button></div>
+        <div class="row"><button class="btn ghost xl" (click)="go('home')">Back</button><button class="btn xl" [disabled]="busy()" (click)="find()">Find my appointment</button>@if (!isLive) {<button class="linkbtn" (click)="demoFill()">Fill demo number</button>}</div>
       }
       @case ('confirm') {
-        @if (found(); as p) {
-          <div><h2>Hello, {{ p.name.split(' ')[0] }}</h2><p class="lead">{{ p.id }} · {{ p.gender }}, {{ p.dob | age }}</p></div>
-          @for (a of todays(); track a.id) {
+        @if (who(); as p) {
+          @if (matches().length > 1) {<div class="seg seg2">@for (m of matches(); track m.patientId) {<button [class.on]="m.patientId === liveFound()?.patientId" (click)="liveFound.set(m)">{{ m.displayName }}</button>}</div>}
+          <div><h2>Hello, {{ p.first }}</h2><p class="lead">{{ p.id }} · {{ p.line }}</p></div>
+          @for (a of visits(); track a.id) {
             <div class="appt"><span class="ic" style="width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:var(--pri-soft);color:var(--pri)"><lucide-icon name="stethoscope" [size]="22"></lucide-icon></span>
-              <div class="grow"><b style="font-size:17px">{{ store.dname(a.doctorId) }}</b><div class="muted">{{ store.dept(a.deptId)?.name }} · {{ a.time | time12 }} · Room {{ a.room }}</div></div>
-              @if (a.status === 'Scheduled' || a.status === 'Confirmed') {<button class="btn xl" (click)="checkIn(a)">Check in</button>} @else {<cf-status [s]="a.status"></cf-status>}
+              <div class="grow"><b style="font-size:17px">{{ a.doctor }}</b><div class="muted">{{ a.dept }} · {{ a.time | time12 }}{{ a.room ? ' · Room ' + a.room : '' }}</div></div>
+              @if (a.status === 'Scheduled' || a.status === 'Confirmed') {<button class="btn xl" [disabled]="busy()" (click)="checkIn(a)">Check in</button>} @else {<cf-status [s]="a.status"></cf-status>}
             </div>
           } @empty {
             <div class="card"><cf-empty icon="calendar-x" title="No appointment today" text="You can still see a doctor as a walk-in."><button class="btn" (click)="go('walkin')">Walk-in visit</button></cf-empty></div>
@@ -83,12 +96,12 @@ type Step = 'home' | 'find' | 'confirm' | 'token' | 'register' | 'walkin';
       }
       @case ('walkin') {
         <div><h2>Walk-in visit</h2><p class="lead">Choose a department. We will give you a token for the next available doctor.</p></div>
-        @if (!found()) {
+        @if (!who()) {
           <div class="field" style="max-width:360px"><label>Mobile number or UHID</label><input class="inp xl" [(ngModel)]="walkId" placeholder="98450 12345 or HS-23-01041"></div>
-        } @else { <div class="appt"><cf-avatar [name]="found()!.name"></cf-avatar><div class="grow"><b>{{ found()!.name }}</b><div class="muted small">{{ found()!.id }}</div></div></div> }
+        } @else { <div class="appt"><cf-avatar [name]="who()!.name"></cf-avatar><div class="grow"><b>{{ who()!.name }}</b><div class="muted small">{{ who()!.id }}</div></div></div> }
         <div class="big">@for (d of walkDepts(); track d.id) {
-          <button class="tile" style="min-height:120px" (click)="walkIn(d.id)"><b>{{ d.name }}</b><span>{{ d.wait }} waiting · about {{ d.wait * 8 }} min</span></button>
-        }</div>
+          <button class="tile" style="min-height:120px" [disabled]="busy()" (click)="walkIn(d.id)"><b>{{ d.name }}</b><span>{{ d.wait }} waiting · about {{ d.wait * 8 }} min</span></button>
+        } @empty {<div class="card"><cf-empty icon="clock" title="No walk-in clinics right now" text="Please ask at the front desk."></cf-empty></div>}</div>
         <button class="btn ghost xl" style="align-self:flex-start" (click)="go('home')">Back</button>
       }
       @case ('register') {
@@ -101,22 +114,23 @@ type Step = 'home' | 'find' | 'confirm' | 'token' | 'register' | 'walkin';
           <div class="field"><label>City</label><input class="inp xl" formControlName="city"></div>
           <div class="field"><label>ABHA number (optional)</label><input class="inp xl" formControlName="abha" placeholder="14 digits"></div>
         </div>
-        <label class="row"><mat-checkbox [checked]="consent()" (change)="consent.set(!consent())"></mat-checkbox> I agree that the hospital may store my details for treatment (demo consent text).</label>
-        <div class="row"><button class="btn ghost xl" (click)="go('home')">Back</button><button class="btn xl" [disabled]="reg.invalid || !consent()" (click)="register()">Register and get token</button></div>
+        <label class="row"><mat-checkbox [checked]="consent()" (change)="consent.set(!consent())"></mat-checkbox> {{ isLive ? 'I agree that the hospital may store my details to treat me and keep my health record.' : 'I agree that the hospital may store my details for treatment (demo consent text).' }}</label>
+        <div class="row"><button class="btn ghost xl" (click)="go('home')">Back</button><button class="btn xl" [disabled]="reg.invalid || !consent() || busy()" (click)="register()">Register and get token</button></div>
       }
       @case ('token') {
         <div style="text-align:center"><h2>You're checked in</h2><p class="lead">Please take your slip and wait for your token on the screen.</p></div>
         <div class="slip" id="slip">
-          <div style="font-weight:700">{{ store.db.config.name }}</div><div style="font-size:12px">OPD token</div><hr>
+          <div style="font-weight:700">{{ isLive ? info()?.branchName : store.db.config.name }}</div><div style="font-size:12px">OPD token</div><hr>
           <div class="tok">{{ token() }}</div>
-          <div>{{ found()?.name }}</div><div style="font-size:12px">{{ found()?.id }}</div><hr>
+          <div>{{ who()?.name }}</div><div style="font-size:12px">{{ who()?.id }}</div><hr>
           <div style="font-size:13px">{{ slipLine() }}</div>
           <div style="font-size:12px;margin-top:6px">{{ ahead() }} patients ahead · {{ nowLabel }}</div><hr>
-          <div style="font-size:11px">PROTOTYPE · not a real token</div>
+          @if (!isLive) {<div style="font-size:11px">PROTOTYPE · not a real token</div>}
         </div>
         <div class="row" style="justify-content:center"><button class="btn ghost xl" (click)="printSlip()"><lucide-icon name="printer" [size]="18"></lucide-icon>Print again</button><button class="btn xl" (click)="reset()">Done</button></div>
         <p class="muted small" style="text-align:center">This screen returns to the start in {{ countdown() }} seconds.</p>
       }
+    }
     }
   </div>`
 })
@@ -130,11 +144,43 @@ export class KioskPage {
   private timer?: ReturnType<typeof setInterval>;
   reg = inject(FormBuilder).nonNullable.group({ name: ['', [Validators.required, Validators.minLength(3)]], mobile: ['', [Validators.required, Validators.pattern(/^[6-9]\d{9}$/)]], dob: ['', Validators.required], gender: ['Female'], city: ['Udumalpet'], abha: [''] });
 
-  serving = computed(() => { this.store.rev(); return this.store.db.queue.filter(q => q.step === 4).slice(0, 4); });
+  readonly isLive = LIVE; kiosk = inject(KioskApi); busy = signal(false); pairCode = '';
+  /** Live mode: branch, departments and now-serving from the server, refreshed every 30 seconds. */
+  info = signal<KInfo | null>(null); matches = signal<KMatch[]>([]); liveFound = signal<KMatch | null>(null);
+  constructor() {
+    if (!LIVE) return;
+    if (this.kiosk.paired()) this.loadInfo();
+    const t = setInterval(() => { if (this.kiosk.paired() && this.step() === 'home') this.loadInfo(); }, 30_000);
+    inject(DestroyRef).onDestroy(() => { clearInterval(t); clearInterval(this.timer); });
+  }
+  private async loadInfo() {
+    try { this.info.set(await this.kiosk.info()); }
+    catch (e) { if ((e as { status?: number }).status === 401) { this.kiosk.unpair(); this.toast.err('This kiosk has been signed out. Pair it again.'); } }
+  }
+  async pair() {
+    this.busy.set(true);
+    try { await this.kiosk.pair(this.pairCode.trim().toUpperCase()); this.pairCode = ''; await this.loadInfo(); this.toast.ok('Kiosk paired'); }
+    catch (e) { this.toast.err(apiMessage(e, 'That pairing code did not work')); }
+    finally { this.busy.set(false); }
+  }
+  who = computed<Who | null>(() => {
+    const m = this.liveFound(); if (m) return { first: m.displayName.split(' ')[0], name: m.displayName, id: m.patientId, line: [m.gender, m.age != null ? m.age + ' years' : ''].filter(Boolean).join(', ') };
+    const p = this.found(); if (!p) return null;
+    const age = Math.floor((Date.now() - new Date(p.dob).getTime()) / 31_557_600_000);
+    return { first: p.name.split(' ')[0], name: p.name, id: p.id, line: `${p.gender}, ${age} years` };
+  });
+  visits = computed<Visit[]>(() => {
+    const m = this.liveFound(); if (m) return m.today.map(a => ({ id: a.id, doctor: a.doctorName, dept: a.deptName, time: a.time, room: a.room, status: a.status }));
+    return this.todays().map(a => ({ id: a.id, doctor: this.store.dname(a.doctorId), dept: this.store.dept(a.deptId)?.name ?? '', time: a.time, room: a.room ?? '', status: a.status, appt: a }));
+  });
+  serving = computed(() => {
+    if (LIVE) return (this.info()?.serving ?? []).slice(0, 4).map(q => ({ token: q.token, dept: q.deptName }));
+    this.store.rev(); return this.store.db.queue.filter(q => q.step === 4).slice(0, 4).map(q => ({ token: q.token, dept: this.store.dept(q.deptId)?.name ?? '' }));
+  });
   todays = computed(() => { this.store.rev(); const p = this.found(); return p ? this.store.db.appointments.filter(a => a.patientId === p.id && a.date === this.store.today()) : []; });
-  walkDepts = computed(() => { this.store.rev(); return this.store.db.departments.filter(d => d.id !== 'EM').slice(0, 6).map(d => ({ ...d, wait: this.store.db.queue.filter(q => q.deptId === d.id && q.step < 4).length })); });
+  walkDepts = computed(() => { if (LIVE) return (this.info()?.departments ?? []).map(d => ({ id: d.id, name: d.name, wait: d.waiting })); this.store.rev(); return this.store.db.departments.filter(d => d.id !== 'EM').slice(0, 6).map(d => ({ ...d, wait: this.store.db.queue.filter(q => q.deptId === d.id && q.step < 4).length })); });
 
-  go(s: Step) { this.step.set(s); if (s === 'home') { this.found.set(null); this.entry.set(''); } }
+  go(s: Step) { this.step.set(s); if (s === 'home') { this.found.set(null); this.liveFound.set(null); this.matches.set([]); this.entry.set(''); } }
   press(k: string) {
     if (k === 'Clear') this.entry.set(''); else if (k === '⌫') this.entry.set(this.entry().slice(0, -1));
     else if (this.entry().length < (this.mode() === 'uhid' ? 7 : 10)) { let v = this.entry() + k; if (this.mode() === 'uhid' && v.length === 2) v += '-'; this.entry.set(v); }
@@ -145,16 +191,45 @@ export class KioskPage {
     return this.store.db.patients.find(p => p.id === v || p.id === 'HS-' + v || p.mobile.replace(/\D/g, '').endsWith(v.replace(/\D/g, '').slice(-10)));
   }
   find() {
-    if (LIVE) { this.toast.info('Self check-in is not connected yet. Please check in at the front desk.'); return; }
+    if (LIVE) { this.liveFind(this.mode() === 'uhid' ? { uhid: 'HS-' + this.entry() } : { mobile: this.entry() }, 'confirm'); return; }
     const p = this.lookup(this.mode() === 'uhid' ? 'HS-' + this.entry() : this.entry());
     if (!p || this.entry().length < 7) { this.toast.err('No patient found. Check the number or register as a new patient.'); return; }
     this.found.set(p); this.step.set('confirm');
   }
-  checkIn(a: Appointment) {
+  private async liveFind(q: { mobile?: string; uhid?: string }, next: Step) {
+    if ((q.mobile ?? q.uhid ?? '').replace(/\D/g, '').length < 7) { this.toast.err('Enter your full mobile number or UHID'); return false; }
+    this.busy.set(true);
+    try {
+      const r = await this.kiosk.find(q);
+      if (!r.length) { this.toast.err('No patient found. Check the number or register as a new patient.'); return false; }
+      this.matches.set(r); this.liveFound.set(r[0]); this.step.set(next); return true;
+    } catch (e) { this.toast.err(apiMessage(e, 'Could not search right now. Please ask at the front desk.')); return false; }
+    finally { this.busy.set(false); }
+  }
+  private async liveTicket(call: () => Promise<KTicket>) {
+    this.busy.set(true);
+    try { const t = await call(); this.issueLive(t); }
+    catch (e) { this.toast.err(apiMessage(e, 'Could not give a token. Please ask at the front desk.')); }
+    finally { this.busy.set(false); }
+  }
+  private issueLive(t: KTicket) {
+    this.token.set(t.token); this.slipLine.set(`${t.doctorName}${t.room ? ' · Room ' + t.room : ''}`); this.ahead.set(t.ahead);
+    this.startCountdown(); this.toast.ok(`Token ${t.token}`);
+  }
+  checkIn(v: Visit) {
+    const m = this.liveFound(); if (m) { this.liveTicket(() => this.kiosk.checkIn(m.patientId, v.id)); return; }
+    const a = v.appt!;
     this.store.setApptStatus(a.id, 'Arrived');
     this.issue(a.token || '', `${this.store.dname(a.doctorId)} · Room ${a.room}`, a.deptId);
   }
-  walkIn(deptId: string) {
+  async walkIn(deptId: string) {
+    if (LIVE) {
+      if (!this.liveFound()) {
+        const raw = this.walkId.trim(); const q = /^HS-/i.test(raw) ? { uhid: raw.toUpperCase() } : { mobile: raw };
+        if (!(await this.liveFind(q, 'walkin'))) return;
+      }
+      const m = this.liveFound()!; this.liveTicket(() => this.kiosk.walkIn(m.patientId, deptId)); return;
+    }
     let p = this.found();
     if (!p) { p = this.lookup(this.walkId) ?? null; if (!p) { this.toast.err('Enter a registered mobile number or UHID, or register as a new patient.'); return; } this.found.set(p); }
     const doc = this.store.db.doctors.filter(d => d.deptId === deptId).sort((x, y) => this.load(x.id) - this.load(y.id))[0];
@@ -165,18 +240,27 @@ export class KioskPage {
   private load(docId: string) { return this.store.db.queue.filter(q => q.doctorId === docId && q.step < 5).length; }
   register() {
     // The kiosk has no staff sign-in, so it cannot create real records yet.
-    if (LIVE) { this.toast.info('New patients: please register at the front desk. Staff will give you your UHID.'); return; }
     const v = this.reg.getRawValue();
+    if (LIVE) {
+      this.busy.set(true);
+      this.kiosk.register({ name: v.name.trim(), mobile: v.mobile, dob: v.dob, gender: v.gender, city: v.city, abha: v.abha, consent: this.consent() })
+        .then(m => { this.toast.ok(`Registered. Your UHID is ${m.patientId}`); this.matches.set([m]); this.liveFound.set(m); this.walkId = m.patientId; this.step.set('walkin'); })
+        .catch(e => this.toast.err(apiMessage(e, 'Could not register. Please ask at the front desk.')))
+        .finally(() => this.busy.set(false));
+      return;
+    }
     const p = this.store.addPatient({ name: v.name.trim(), mobile: '+91 ' + v.mobile.slice(0, 5) + ' ' + v.mobile.slice(5), dob: v.dob, gender: v.gender as Patient['gender'], abha: v.abha || undefined, address: { line: '', city: v.city || 'Udumalpet', state: 'Tamil Nadu', pin: '' }, blood: 'Unknown', allergies: [], conditions: [], history: '', emergency: { name: '', relation: '', phone: '' }, consent: 'Given', primaryDoctorId: '' });
     this.toast.ok(`Registered as ${p.id}`); this.found.set(p); this.walkId = p.id; this.step.set('walkin');
   }
   private issue(token: string, line: string, deptId: string) {
     this.token.set(token); this.slipLine.set(line); this.ahead.set(this.store.db.queue.filter(q => q.deptId === deptId && q.step < 4 && q.token !== token).length);
-    this.step.set('token'); this.toast.ok(`Token ${token} printed (simulated)`);
-    this.countdown.set(30); clearInterval(this.timer);
+    this.toast.ok(`Token ${token} printed (simulated)`); this.startCountdown();
+  }
+  private startCountdown() {
+    this.step.set('token'); this.countdown.set(30); clearInterval(this.timer);
     this.timer = setInterval(() => { this.countdown.update(n => n - 1); if (this.countdown() <= 0) this.reset(); }, 1000);
   }
-  printSlip() { this.toast.info('Token slip sent to the kiosk printer (simulated)'); }
+  printSlip() { if (LIVE) { window.print(); return; } this.toast.info('Token slip sent to the kiosk printer (simulated)'); }
   reset() { clearInterval(this.timer); this.go('home'); this.walkId = ''; this.consent.set(false); this.reg.reset(); }
   exit() { clearInterval(this.timer); this.router.navigate(['/login']); }
 }

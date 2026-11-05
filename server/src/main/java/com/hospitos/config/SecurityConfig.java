@@ -39,9 +39,14 @@ public class SecurityConfig {
 
   private final Converter<Jwt, AbstractAuthenticationToken> staffConverter;
 
-  public SecurityConfig(UserRepository users) {
+  public SecurityConfig(UserRepository users, org.springframework.jdbc.core.simple.JdbcClient db) {
     // Every request re-reads the account, so suspension, role and branch changes and password resets apply immediately.
+    // Patient portal and kiosk tokens carry a "typ" claim and get their own authentication, which no staff endpoint accepts.
     this.staffConverter = jwt -> {
+      Object typ = jwt.getClaim("typ");
+      if ("patient".equals(typ)) return com.hospitos.portal.PortalTokens.authenticate(db, jwt);
+      if ("kiosk".equals(typ)) return com.hospitos.kiosk.KioskTokens.authenticate(db, jwt);
+      if (typ != null) throw new InvalidBearerTokenException("Invalid token");
       UUID id;
       try { id = UUID.fromString(jwt.getSubject()); } catch (RuntimeException e) { throw new InvalidBearerTokenException("Invalid token"); }
       var a = users.access(id).orElseThrow(() -> new InvalidBearerTokenException("Account no longer exists"));
@@ -62,7 +67,15 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
             .requestMatchers("/actuator/health").permitAll()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-            .requestMatchers("/api/auth/me", "/api/auth/password").authenticated()
+            .requestMatchers("/api/auth/me", "/api/auth/password").access((auth, ctx) -> new AuthorizationDecision(auth.get() instanceof StaffAuthentication))
+            // Patient portal: sign-in with a code sent to the registered mobile, then patient tokens only.
+            .requestMatchers(HttpMethod.POST, "/api/portal/otp", "/api/portal/verify").permitAll()
+            .requestMatchers("/api/portal/**").access((auth, ctx) -> new AuthorizationDecision(auth.get() instanceof com.hospitos.portal.PatientAuthentication))
+            // Kiosks pair with a one-time code; device management is for staff (role checks on the controller).
+            .requestMatchers(HttpMethod.POST, "/api/kiosk/pair").permitAll()
+            .requestMatchers("/api/kiosk/devices/**", "/api/kiosk/devices").access((auth, ctx) -> new AuthorizationDecision(
+                auth.get() instanceof StaffAuthentication s && !s.user().mustChangePw()))
+            .requestMatchers("/api/kiosk/**").access((auth, ctx) -> new AuthorizationDecision(auth.get() instanceof com.hospitos.kiosk.KioskAuthentication))
             // Accounts still on a temporary password can only change it.
             .anyRequest().access((auth, ctx) -> new AuthorizationDecision(
                 auth.get() instanceof StaffAuthentication s && !s.user().mustChangePw())))

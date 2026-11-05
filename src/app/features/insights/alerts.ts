@@ -5,6 +5,8 @@ import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { SessionService } from '../../core/services/session.service';
 import { Alert } from '../../core/models';
+import { LIVE } from '../../core/api/api-config';
+import { InsightsApi, SAlert, scopeBranch } from '../../core/api/insights-api';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -13,7 +15,7 @@ import { Alert } from '../../core/models';
   .al .meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--mut); margin-top:6px }`],
   template: `
   <div class="page">
-    <cf-page-head title="Alerts" [crumbs]="['Home', 'Alerts centre']" sub="Clinical, lab, pharmacy, billing and operational alerts in one place. Clinical alerts are demo rules, not validated decision support.">
+    <cf-page-head title="Alerts" [crumbs]="['Home', 'Alerts centre']" [sub]="isLive ? 'Raised automatically from lab, pharmacy, queue and claims data, and cleared when the cause goes away. They are rules, not validated clinical decision support.' : 'Clinical, lab, pharmacy, billing and operational alerts in one place. Clinical alerts are demo rules, not validated decision support.'">
       <button class="btn ghost" (click)="ackAll()" [disabled]="!openLow()">Acknowledge all low priority</button>
     </cf-page-head>
     <div class="grid">
@@ -33,7 +35,7 @@ import { Alert } from '../../core/models';
       @for (a of rows(); track a.id) {
         <div class="al {{ a.status }}" (click)="sel.set(a)">
           <span class="bar" [style.background]="color(a.priority)"></span>
-          <div class="grow"><div class="row"><b style="font-size:15px">{{ a.title }}</b><cf-status [s]="a.priority"></cf-status>@if (a.category === 'Clinical' || a.category === 'Safety' || a.category === 'Lab') {<span class="demo-tag">Demo rule</span>}</div>
+          <div class="grow"><div class="row"><b style="font-size:15px">{{ a.title }}</b><cf-status [s]="a.priority"></cf-status>@if (a.category === 'Clinical' || a.category === 'Safety' || a.category === 'Lab') {<span class="demo-tag">{{ isLive ? 'Rule' : 'Demo rule' }}</span>}</div>
             <div class="muted">{{ a.detail }}</div>
             <div class="meta"><span>{{ a.category }}</span>·<span>{{ a.dept }}</span>·<span>{{ a.time.slice(11) }}</span>·<span><lucide-icon name="user-round" [size]="12"></lucide-icon> {{ a.assignee }}</span></div></div>
           <cf-status [s]="a.status"></cf-status>
@@ -44,7 +46,7 @@ import { Alert } from '../../core/models';
   <cf-drawer [open]="!!sel()" [title]="sel()?.title || ''" [sub]="sel() ? sel()!.priority + ' · ' + sel()!.category + ' · ' + sel()!.dept : ''" (closed)="sel.set(null)">
     @if (sel(); as a) {
       <p>{{ a.detail }}</p>
-      @if (a.category === 'Clinical' || a.category === 'Safety' || a.category === 'Lab') {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div>Demo alert, not validated clinical decision support. The treating clinician decides what to do.</div></div>}
+      @if (a.category === 'Clinical' || a.category === 'Safety' || a.category === 'Lab') {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div>{{ isLive ? 'Automatic rule' : 'Demo alert' }}, not validated clinical decision support. The treating clinician decides what to do.</div></div>}
       <div class="kv"><div><small>Raised</small><b>{{ a.time }}</b></div><div><small>Status</small><b><cf-status [s]="a.status"></cf-status></b></div></div>
       <div class="field"><label>Assigned to</label><select class="inp" [ngModel]="a.assignee" (ngModelChange)="assign(a, $event)">@for (p of people(); track p) {<option>{{ p }}</option>}</select></div>
       @if (a.status !== 'Resolved') {<div class="field"><label>Resolution note</label><textarea class="inp" rows="3" [(ngModel)]="note" placeholder="What was done?"></textarea></div>}
@@ -57,7 +59,20 @@ export class AlertsPage {
   store = inject(StoreService); toast = inject(ToastService); session = inject(SessionService); router = inject(Router);
   statuses = ['Open', 'Acknowledged', 'Resolved', '']; prios = ['Critical', 'High', 'Medium', 'Low']; cats = ['Clinical', 'Lab', 'Pharmacy', 'Billing', 'Operations', 'Bed', 'Safety', 'System'];
   status = signal('Open'); prio = signal(''); cat = signal(''); mine = signal(false); sel = signal<Alert | null>(null); note = '';
-  all = computed(() => { this.store.rev(); return this.store.db.alerts; });
+  readonly isLive = LIVE; private api = inject(InsightsApi);
+  /** Live mode: alerts from the server, keyed by their string id. */
+  private live = signal<Alert[] | null>(null);
+  constructor() { if (LIVE) this.reload(); }
+  private async reload() {
+    try { this.live.set((await this.api.alerts(scopeBranch(this.session))).map(a => this.fromServer(a))); }
+    catch { this.toast.err('Could not load alerts'); }
+  }
+  private fromServer(a: SAlert): Alert { return { ...a, id: String(a.id), category: a.category as Alert['category'], assignee: a.assignee || 'Unassigned', time: a.time.replace('T', ' ').slice(0, 16) }; }
+  private async liveStatus(a: Alert, status: Alert['status'], msg: string, note?: string) {
+    try { await this.api.alertStatus(+a.id, status, note); this.toast.ok(msg); await this.reload(); }
+    catch { this.toast.err('Could not update the alert'); }
+  }
+  all = computed(() => { const L = this.live(); if (L) return L; this.store.rev(); return this.store.db.alerts; });
   rows = computed(() => { const me = this.session.role()?.userName; const order = { Critical: 0, High: 1, Medium: 2, Low: 3 };
     return this.all().filter(a => (!this.status() || a.status === this.status()) && (!this.prio() || a.priority === this.prio()) && (!this.cat() || a.category === this.cat()) && (!this.mine() || a.assignee === me))
       .sort((x, y) => order[x.priority] - order[y.priority] || y.time.localeCompare(x.time)); });
@@ -66,10 +81,10 @@ export class AlertsPage {
   byStatus(s: Alert['status']) { return this.all().filter(a => a.status === s).length; }
   openLow() { return this.all().filter(a => a.priority === 'Low' && a.status === 'Open').length; }
   color(p: Alert['priority']) { return p === 'Critical' ? 'var(--red)' : p === 'High' ? 'var(--pink)' : p === 'Medium' ? 'var(--amber)' : 'var(--line)'; }
-  ack(a: Alert) { a.status = 'Acknowledged'; this.store.log('Acknowledged', 'Alert', a.title); this.store.changed(); this.toast.ok('Alert acknowledged'); }
-  resolve(a: Alert) { a.status = 'Resolved'; if (this.note.trim()) a.detail += ` Resolution: ${this.note.trim()}`; this.store.log('Resolved', 'Alert', `${a.title}${this.note ? ': ' + this.note : ''}`); this.note = ''; this.store.changed(); this.toast.ok('Alert resolved'); this.sel.set(null); }
-  reopen(a: Alert) { a.status = 'Open'; this.store.changed(); this.toast.info('Alert reopened'); }
-  assign(a: Alert, who: string) { a.assignee = who; this.store.log('Assigned', 'Alert', `${a.title} → ${who}`); this.store.changed(); this.toast.ok(`Assigned to ${who}`); }
-  ackAll() { const l = this.all().filter(a => a.priority === 'Low' && a.status === 'Open'); l.forEach(a => a.status = 'Acknowledged'); this.store.changed(); this.toast.ok(`${l.length} low priority alerts acknowledged`); }
+  ack(a: Alert) { if (LIVE) { this.liveStatus(a, 'Acknowledged', 'Alert acknowledged'); return; } a.status = 'Acknowledged'; this.store.log('Acknowledged', 'Alert', a.title); this.store.changed(); this.toast.ok('Alert acknowledged'); }
+  resolve(a: Alert) { if (LIVE) { const n = this.note.trim(); this.note = ''; this.sel.set(null); this.liveStatus(a, 'Resolved', 'Alert resolved', n || undefined); return; } a.status = 'Resolved'; if (this.note.trim()) a.detail += ` Resolution: ${this.note.trim()}`; this.store.log('Resolved', 'Alert', `${a.title}${this.note ? ': ' + this.note : ''}`); this.note = ''; this.store.changed(); this.toast.ok('Alert resolved'); this.sel.set(null); }
+  reopen(a: Alert) { if (LIVE) { this.sel.set(null); this.liveStatus(a, 'Open', 'Alert reopened'); return; } a.status = 'Open'; this.store.changed(); this.toast.info('Alert reopened'); }
+  assign(a: Alert, who: string) { if (LIVE) { this.api.assign(+a.id, who).then(() => { this.toast.ok(`Assigned to ${who}`); this.sel.set(null); this.reload(); }).catch(() => this.toast.err('Could not assign')); return; } a.assignee = who; this.store.log('Assigned', 'Alert', `${a.title} → ${who}`); this.store.changed(); this.toast.ok(`Assigned to ${who}`); }
+  ackAll() { if (LIVE) { this.api.ackLow(scopeBranch(this.session)).then(r => { this.toast.ok(`${r.acknowledged} low priority alerts acknowledged`); this.reload(); }).catch(() => this.toast.err('Could not acknowledge')); return; } const l = this.all().filter(a => a.priority === 'Low' && a.status === 'Open'); l.forEach(a => a.status = 'Acknowledged'); this.store.changed(); this.toast.ok(`${l.length} low priority alerts acknowledged`); }
   go(a: Alert) { this.sel.set(null); this.router.navigateByUrl(a.link!); }
 }

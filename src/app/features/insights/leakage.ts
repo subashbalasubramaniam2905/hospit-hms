@@ -4,15 +4,18 @@ import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ExportService } from '../../core/services/export.service';
+import { SessionService } from '../../core/services/session.service';
+import { LIVE } from '../../core/api/api-config';
+import { InsightsApi, scopeBranch } from '../../core/api/insights-api';
 
 type Kind = 'Consultation not billed' | 'Lab test not billed' | 'Imaging not billed' | 'High discount' | 'Unpaid over 3 days' | 'Claim rejected';
-interface Leak { id: string; kind: Kind; patientId: string; date: string; detail: string; amount: number; ref: string; }
+interface Leak { id: string; kind: Kind; patientId: string; date: string; detail: string; amount: number; ref: string; patientName?: string; }
 
 @Component({
   standalone: true, imports: [SHARED],
   template: `
   <div class="page">
-    <cf-page-head title="Revenue leakage" [crumbs]="['Finance', 'Leakage']" sub="Services delivered without an invoice, unusual discounts and money still outstanding. Found by simple rules on the demo data.">
+    <cf-page-head title="Revenue leakage" [crumbs]="['Finance', 'Leakage']" [sub]="isLive ? 'Services delivered without an invoice, discounts above the approval limit, money outstanding and rejected claims, found by rules on the hospital’s records. Waivers and approvals are logged.' : 'Services delivered without an invoice, unusual discounts and money still outstanding. Found by simple rules on the demo data.'">
       <button class="btn ghost" (click)="exportCsv()"><lucide-icon name="download" [size]="16"></lucide-icon>Export</button>
     </cf-page-head>
     <div class="grid">
@@ -31,12 +34,12 @@ interface Leak { id: string; kind: Kind; patientId: string; date: string; detail
     <div class="card">
       <div class="toolbar" style="margin-bottom:12px"><div class="chips"><button class="chip" [class.on]="!kind()" (click)="kind.set('')">All</button>@for (r of rules; track r.k) {<button class="chip" [class.on]="kind() === r.k" (click)="kind.set(r.k)">{{ r.k }}</button>}</div></div>
       <cf-table [rows]="rows()" [cols]="cols" emptyIcon="circle-check" emptyTitle="No leakage found" emptyText="Every delivered service in this filter has been billed.">
-        <ng-template cfCell="patient" let-l><a class="linkbtn" [routerLink]="['/patients', l.patientId]">{{ store.pname(l.patientId) }}</a></ng-template>
+        <ng-template cfCell="patient" let-l><a class="linkbtn" [routerLink]="['/patients', l.patientId]">{{ l.patientName ?? store.pname(l.patientId) }}</a></ng-template>
         <ng-template cfCell="kind" let-l><cf-status [s]="l.kind" [tone]="l.kind.includes('billed') ? 'a' : l.kind === 'High discount' ? 'v' : 'r'"></cf-status></ng-template>
         <ng-template cfCell="amount" let-l><b>{{ l.amount | inr }}</b></ng-template>
         <ng-template cfCell="act" let-l><div class="row nowrap">
           @if (l.kind.includes('billed')) {<button class="btn sm" (click)="bill(l)">Create invoice</button><button class="btn ghost sm" (click)="waive.set(l)">Waive</button>}
-          @else if (l.kind === 'Unpaid over 3 days') {<button class="btn sm" (click)="remind(l)">Send reminder</button><a class="btn ghost sm" [routerLink]="['/billing/invoice', l.ref]">Open</a>}
+          @else if (l.kind === 'Unpaid over 3 days') {@if (!isLive) {<button class="btn sm" (click)="remind(l)">Send reminder</button>}<a class="btn ghost sm" [routerLink]="['/billing/invoice', l.ref]">Open</a>}
           @else if (l.kind === 'Claim rejected') {<a class="btn sm" routerLink="/insurance">Review claim</a>}
           @else {<a class="btn ghost sm" [routerLink]="['/billing/invoice', l.ref]">Review</a><button class="btn ghost sm" (click)="approve(l)">Mark approved</button>}
         </div></ng-template>
@@ -45,7 +48,7 @@ interface Leak { id: string; kind: Kind; patientId: string; date: string; detail
   </div>
   <cf-modal [open]="!!waive()" title="Waive this charge?" (closed)="waive.set(null)">
     <p>{{ waive()?.detail }} · {{ waive()?.amount | inr }}</p>
-    <div class="field"><label>Reason (recorded in the audit log)</label><select class="inp" [(ngModel)]="reason"><option>Free follow-up within 7 days</option><option>Staff or family concession</option><option>Charity case</option><option>Duplicate order</option></select></div>
+    <div class="field"><label>Reason (recorded in the audit log)</label><select class="inp" [(ngModel)]="reason"><option>Free follow-up within 7 days</option><option>Billed under another invoice</option><option>Staff or family concession</option><option>Charity case</option><option>Duplicate order</option></select></div>
     <div foot><button class="btn ghost" (click)="waive.set(null)">Cancel</button><button class="btn" (click)="doWaive()">Waive charge</button></div>
   </cf-modal>`
 })
@@ -53,6 +56,18 @@ export class LeakagePage {
   store = inject(StoreService); toast = inject(ToastService); exp = inject(ExportService); router = inject(Router);
   kind = signal(''); waive = signal<Leak | null>(null); reason = 'Free follow-up within 7 days'; recovered = signal(0);
   private ok = signal<string[]>([]);
+  session = inject(SessionService); readonly isLive = LIVE; private api = inject(InsightsApi);
+  /** Live mode: findings from the server. Reviewed ones are left out by the server. */
+  private live = signal<Leak[] | null>(null);
+  constructor() { if (LIVE) this.reload(); }
+  private async reload() {
+    try { this.live.set((await this.api.leakage(scopeBranch(this.session))).map(l => ({ ...l, id: l.key, kind: l.kind as Kind }))); }
+    catch { this.toast.err('Could not load leakage findings'); }
+  }
+  private async liveReview(l: Leak, action: 'Waived' | 'Approved', reason: string, msg: string) {
+    try { await this.api.review(l.id, action, reason); this.recovered.update(v => v + l.amount); this.toast.ok(msg); await this.reload(); }
+    catch { this.toast.err('Could not record the review'); }
+  }
   palette = ['--amber', '--blue', '--violet', '--pink', '--red', '--pri'];
   rules: { k: Kind; d: string; icon: string }[] = [
     { k: 'Consultation not billed', d: 'Completed consultation with no invoice line', icon: 'stethoscope' },
@@ -62,8 +77,9 @@ export class LeakagePage {
     { k: 'Unpaid over 3 days', d: 'Balance due on an invoice older than 3 days', icon: 'clock' },
     { k: 'Claim rejected', d: 'Insurance claim rejected and not appealed', icon: 'shield-alert' },
   ];
-  cols = [{ key: 'date', label: 'Date' }, { key: 'patient', label: 'Patient', value: (l: Leak) => this.store.pname(l.patientId) }, { key: 'kind', label: 'Issue' }, { key: 'detail', label: 'Detail', sortable: false }, { key: 'amount', label: 'Amount', align: 'right' as const }, { key: 'act', label: '', sortable: false }];
+  cols = [{ key: 'date', label: 'Date' }, { key: 'patient', label: 'Patient', value: (l: Leak) => l.patientName ?? this.store.pname(l.patientId) }, { key: 'kind', label: 'Issue' }, { key: 'detail', label: 'Detail', sortable: false }, { key: 'amount', label: 'Amount', align: 'right' as const }, { key: 'act', label: '', sortable: false }];
   leaks = computed<Leak[]>(() => {
+    const L = this.live(); if (L) return L;
     this.store.rev(); const s = this.store; const out: Leak[] = []; const old = s.day(-3);
     s.db.consultations.filter(c => c.status === 'Completed' && !c.billed).forEach(c => out.push({ id: c.id, kind: 'Consultation not billed', patientId: c.patientId, date: c.date, detail: `Consultation with ${s.dname(c.doctorId)}`, amount: s.doctor(c.doctorId)?.fee || 0, ref: c.id }));
     s.db.labOrders.filter(o => !o.billed).forEach(o => out.push({ id: o.id, kind: 'Lab test not billed', patientId: o.patientId, date: o.date, detail: s.names(o.testIds), amount: o.testIds.reduce((t, id) => t + (s.test(id)?.price || 0), 0), ref: o.id }));
@@ -80,12 +96,13 @@ export class LeakagePage {
   byKind = computed(() => { const m = new Map<string, number>(); this.leaks().forEach(l => m.set(l.kind, (m.get(l.kind) || 0) + l.amount)); return { labels: [...m.keys()], data: [...m.values()] }; });
   count(k: Kind) { return this.leaks().filter(l => l.kind === k).length; }
   bill(l: Leak) { this.router.navigate(['/billing/new'], { queryParams: { patient: l.patientId } }); }
-  doWaive() { const l = this.waive()!; this.markBilled(l); this.recovered.update(v => v + l.amount); this.store.log('Waived', 'Charge', `${l.detail} ₹${l.amount}: ${this.reason}`, 'Sensitive'); this.store.changed(); this.toast.ok('Charge waived and logged'); this.waive.set(null); }
+  doWaive() { const l = this.waive()!;
+    if (LIVE) { this.waive.set(null); this.liveReview(l, 'Waived', this.reason, 'Charge waived and logged'); return; } this.markBilled(l); this.recovered.update(v => v + l.amount); this.store.log('Waived', 'Charge', `${l.detail} ₹${l.amount}: ${this.reason}`, 'Sensitive'); this.store.changed(); this.toast.ok('Charge waived and logged'); this.waive.set(null); }
   private markBilled(l: Leak) { const s = this.store.db;
     if (l.kind === 'Consultation not billed') { const c = s.consultations.find(x => x.id === l.ref); if (c) c.billed = true; }
     else if (l.kind === 'Lab test not billed') { const o = s.labOrders.find(x => x.id === l.ref); if (o) o.billed = true; }
     else if (l.kind === 'Imaging not billed') { const o = s.imaging.find(x => x.id === l.ref); if (o) o.billed = true; } }
   remind(l: Leak) { this.store.notify('WhatsApp', 'Payment reminder', l.patientId, `A balance of ₹${new Intl.NumberFormat('en-IN').format(l.amount)} is due on ${l.ref}. Pay by UPI on the patient app.`); this.store.changed(); this.toast.ok('Payment reminder sent (simulated)'); }
-  approve(l: Leak) { this.ok.update(v => [...v, l.id]); this.recovered.update(v => v + l.amount); this.store.log('Approved', 'Discount', l.detail, 'Sensitive'); this.store.changed(); this.toast.ok('Discount approved and logged'); }
-  exportCsv() { this.exp.csv('revenue-leakage', this.rows().map(l => ({ Date: l.date, Patient: this.store.pname(l.patientId), Issue: l.kind, Detail: l.detail, Amount: l.amount }))); }
+  approve(l: Leak) { if (LIVE) { this.liveReview(l, 'Approved', 'Discount approved on review', 'Discount approved and logged'); return; } this.ok.update(v => [...v, l.id]); this.recovered.update(v => v + l.amount); this.store.log('Approved', 'Discount', l.detail, 'Sensitive'); this.store.changed(); this.toast.ok('Discount approved and logged'); }
+  exportCsv() { this.exp.csv('revenue-leakage', this.rows().map(l => ({ Date: l.date, Patient: l.patientName ?? this.store.pname(l.patientId), Issue: l.kind, Detail: l.detail, Amount: l.amount }))); }
 }

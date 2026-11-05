@@ -26,6 +26,9 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | empty | First super administrator, used only when no accounts exist. |
 | `SECRET_KEY` | derived from `JWT_SECRET` | Encrypts integration secrets (API keys, tokens) at rest. **Set it in every real environment**; changing it makes stored secrets unreadable. |
 | `PORT` | `8080` | |
+| `ANTHROPIC_API_KEY` | empty | Turns on the AI operations assistant (Claude). Without it the assistant answers with fixed rules from the same figures. |
+| `HOSPITOS_AI_MODEL` | `claude-opus-5-5` | Claude model for the assistant. |
+| `PORTAL_DEV_OTP` | `false` | `true` returns the patient-portal sign-in code in the API response, for local testing only. Never set it in production. |
 
 ## API (foundation)
 
@@ -71,7 +74,7 @@ daily break in `doctor.break_start/break_end` (13:00 to 14:00 by default).
 - **Package:** `com.hospitos.<module>` (for example `com.hospitos.appointments`). Controllers under `/api/<module>`.
 - **Database:** plain SQL through `JdbcClient`. Flyway versions are reserved per module so parallel work never collides:
   foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49,
-  radiology V50–V59, emergency and OT V60–V69, inpatients V70–V79, administration, staff, stores and notifications V80–V89, insights V90–V99.
+  radiology V50–V59, emergency and OT V60–V69, inpatients V70–V79, administration, staff, stores and notifications V80–V89, insights, portal, kiosk and AI V90–V99.
   Use snake_case. Use `text` ids where the Angular model already has readable ids, `uuid` otherwise.
 - **Keys you will reference:** `patient(id text)` (UHID), `branch(id text)` (`BR1` Udumalpet, `BR2` Pollachi, `BR3` Palani),
   `department(id text)`, `doctor(id text, dept_id, user_id → app_user)`, `app_user(id uuid)`.
@@ -255,3 +258,49 @@ repeating schedules), NEWS2 leaves out consciousness and oxygen, and escalations
 | `GET/POST /api/admin/departments`, `PUT /api/admin/departments/{id}` | super-admin, admin | Add, rename or close (`active: false`) departments in your own branches. Ids are made from the name (`DERM`, `GM`). |
 | `GET/POST /api/admin/workflows`, `PUT/DELETE /api/admin/workflows/{id}`, `POST /api/admin/workflows/{id}/test` | super-admin, admin | Trigger, condition and action steps. There is no workflow engine yet: a test run lists what each step would do and sends nothing. |
 | `GET /api/admin/integrations`, `PUT /api/admin/integrations/{id}`, `POST /api/admin/integrations/{id}/test` | super-admin | Connection settings for ABDM, HL7, FHIR, LIS, PACS, payments, SMS, email, WhatsApp, TPA, accounting and devices. Secrets are AES-GCM encrypted with `SECRET_KEY` and never returned (`set: true` only); send an empty value to keep one, `-` to clear it. No connector is live yet, so a test only checks the settings are complete and status is at most `Configured`. |
+
+## API (insights and dashboard)
+
+Every figure is computed from the module tables, for the branches the user may see (`?branch=` picks one; super-admins see all when it is left out). Beds come from the inpatient module and emergency counts from the ER board; staff rosters are not included yet.
+
+| Endpoint | Who | Notes |
+| --- | --- | --- |
+| `GET /api/insights/dashboard?branch=` | all staff | Today's appointments, queue by step and long waits, registrations, collections, outstanding, lab, pharmacy, claims, unbilled work, follow-ups, doctors, open alerts, hourly arrivals, 12-month revenue, department performance (30 days), and the signed-in doctor's own figures. |
+| `GET /api/insights/reports/{id}?days=&deptId=&branch=` | super-admin, admin, billing, hr | `opd`, `revenue`, `doctor`, `lab` (real turnaround from sample collection to verification), `pharmacy`, `claims`, `noshow`, `beds` (occupancy now per ward, with admissions and average stay over the period). `days` 1–366. |
+| `GET /api/insights/branches` | admins | This month's revenue, collections, visits, outstanding, patients, doctors, beds and occupancy, and OPD utilisation (booked minutes over scheduled capacity) per branch. |
+| `GET /api/insights/alerts?branch=&status=` | all staff | Raised automatically (critical lab values, STAT samples not collected after 30 minutes, low stock, expiring and expired batches, queue waits over 45 minutes, rejected claims) and resolved automatically with "Cleared automatically" when the cause goes away. |
+| `POST /api/insights/alerts/{id}/status`, `/assign`, `POST /api/insights/alerts/acknowledge-low` | all staff | `{status: Open/Acknowledged/Resolved, note}`, `{assignee}`. Audited. |
+| `GET /api/insights/followups?branch=&doctorId=`, `POST /api/insights/followups/remind` | admins, doctor, nurse, receptionist | Follow-up dates set at the end of a consultation. Booked once the patient has a later visit with the same doctor, Completed when it is done. Remind records `{ids}`; no SMS or WhatsApp gateway is connected yet. |
+| `GET /api/insights/leakage`, `POST /api/insights/leakage/review` | admins, billing | Unbilled consultations and lab orders, discounts above the approval limit, invoices unpaid after 3 days with no open claim, rejected claims. `{key, action: Waived/Approved, reason}`; only unbilled services can be waived. Audited. |
+| `GET /api/insights/safety`, `POST /api/insights/safety/review` | admins, doctor, pharmacist (nurse may read) | Re-runs the prescribing safety rules over the last 30 days' prescriptions that are not fully dispensed. A review `{prescriptionId, alertCode, outcome, note}` is recorded once. |
+
+## API (patient portal)
+
+Patients sign in with their mobile number and a 6-digit code; the token (`typ: patient`, 12 hours) is accepted only by `/api/portal/**`, and staff tokens are not. One number can hold several family members' records.
+
+| Endpoint | Notes |
+| --- | --- |
+| `POST /api/portal/otp` `{mobile}` | At most 5 codes per number per hour. Unknown numbers get the same answer and no code. Codes are hashed, last 10 minutes and allow 5 attempts. **No SMS gateway is connected yet:** codes are written to the server log, or returned as `devCode` when `PORTAL_DEV_OTP=true`. |
+| `POST /api/portal/verify` `{mobile, code}` | Returns `{token, expiresAt, profiles}`. Audited. |
+| `GET /api/portal/me`, `/doctors`, `/slots?patientId=&doctorId=&date=` | Profiles on this number; bookable doctors; free times. |
+| `GET/POST /api/portal/appointments`, `POST /api/portal/appointments/{id}/cancel` | Booking and cancelling go through the appointments module with its usual rules. |
+| `GET /api/portal/records`, `/bills`; `POST /api/portal/feedback` | Visit summaries, signed prescriptions and verified lab results only. Opening records is audited. |
+
+## API (kiosk)
+
+An admin adds a kiosk and gets an 8-character pairing code (15 minutes, single use). The kiosk exchanges it for a long-lived token (`typ: kiosk`) that works only on `/api/kiosk/**` and stops working when the kiosk is signed out or re-paired.
+
+| Endpoint | Who | Notes |
+| --- | --- | --- |
+| `GET/POST /api/kiosk/devices`, `POST /api/kiosk/devices/{id}/pair-code`, `/revoke` | super-admin, admin | `{branchId, name}`. |
+| `POST /api/kiosk/pair` `{code}` | anyone with a code | |
+| `GET /api/kiosk/info` | kiosk | Branch, departments with waiting counts, now serving. |
+| `POST /api/kiosk/find` `{mobile}` or `{uhid}` | kiosk | Shows only "First L.", gender, age and today's appointments at this branch. |
+| `POST /api/kiosk/check-in`, `/walk-in`, `/register` | kiosk | Check-in marks today's appointment Arrived and returns the token. Walk-in goes to the doctor in the department with the shortest queue who works today. Register refuses a second record for the same name, date of birth and mobile. All audited as the kiosk. |
+
+## API (AI assistant)
+
+| Endpoint | Who | Notes |
+| --- | --- | --- |
+| `GET /api/ai/status` | admins, doctor, billing | `{live, model}`. |
+| `POST /api/ai/ask` `{question, history, branch}` | admins, doctor, billing | Answers from today's dashboard figures for the user's branches: counts and amounts only, never patient names, UHIDs or notes. With `ANTHROPIC_API_KEY` the figures and question go to Claude; without it, or if the call fails or is refused, fixed rules answer. Every question is audited. |
