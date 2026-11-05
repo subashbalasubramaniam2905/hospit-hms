@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { PatientsApi, toInput } from '../../core/api/patients-api';
+import { RadiologySync } from '../../core/api/radiology-sync';
 import { apiMessage } from '../../core/api/auth.service';
 import { Router } from '@angular/router';
 import { SHARED, fmtDate } from '../../shared';
@@ -224,7 +225,7 @@ export class ProfilePage {
   id = input<string>('');
   tab = signal<Tab>('overview'); edit = signal(false);
   form = { mobile: '', email: '', line: '', ephone: '' };
-  private patientsApi = inject(PatientsApi);
+  private patientsApi = inject(PatientsApi); private radSync = inject(RadiologySync);
   loading = signal(false); saving = signal(false); loadError = signal('');
   private loadSeq = 0;
 
@@ -238,6 +239,7 @@ export class ProfilePage {
         .then(p => { if (seq === this.loadSeq) this.store.upsertPatient(p); })
         .catch(e => { if (seq === this.loadSeq && (e as { status?: number }).status !== 404) this.loadError.set(apiMessage(e, 'Could not open this record')); })
         .finally(() => { if (seq === this.loadSeq) this.loading.set(false); });
+      this.radSync.loadPatient(id).catch(() => undefined);
     });
   }
 

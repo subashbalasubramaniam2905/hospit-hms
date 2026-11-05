@@ -12,6 +12,10 @@ import { ICD10, SafetyAlert, TEMPLATES, safetyCheck } from '../../core/data/clin
 import { ClinicalApi, ConsultationDetail, blockedAlerts, toConsultation, toLines, toPrescription, toSafetyAlert } from '../../core/api/clinical-api';
 import { PatientsApi } from '../../core/api/patients-api';
 import { apiMessage } from '../../core/api/auth.service';
+import { LabApi } from '../../core/api/lab-api';
+import { LiveSync } from '../../core/api/live-sync';
+import { RadiologyApi } from '../../core/api/radiology-api';
+import { RadiologySync } from '../../core/api/radiology-sync';
 
 @Component({
   standalone: true, imports: [SHARED, RxEditorComponent],
@@ -243,6 +247,7 @@ export class ConsultationPage {
   printer = inject(ExportService);
   store = inject(StoreService); toast = inject(ToastService); session = inject(SessionService); ai = inject(AiMockService); router = inject(Router);
   private api = inject(ClinicalApi); private patientsApi = inject(PatientsApi);
+  private labApi = inject(LabApi); private labSync = inject(LiveSync); private radApi = inject(RadiologyApi); private radSync = inject(RadiologySync);
   patientId = input<string>('');
   templates = TEMPLATES;
   sections = [{ id: 'vitals', label: 'Vitals' }, { id: 'history', label: 'Subjective' }, { id: 'exam', label: 'Exam' }, { id: 'dx', label: 'Diagnosis' }, { id: 'orders', label: 'Orders' }, { id: 'rx', label: 'Rx' }, { id: 'plan', label: 'Plan' }];
@@ -420,6 +425,21 @@ export class ConsultationPage {
     return this.saving;
   }
 
+  /** Places the lab and imaging orders on the server. A failed order is reported on its own and does not undo the signature. */
+  private async placeOrdersLive(patientId: string, doctorId: string): Promise<string[]> {
+    const out: string[] = [];
+    const tests = this.tests(), img = { ...this.img };
+    if (tests.length) {
+      try { this.labSync.putOrder(await this.labApi.create(patientId, doctorId, tests, this.priority() as 'Routine')); out.push(`${tests.length} tests ordered`); }
+      catch (e) { this.toast.err(apiMessage(e, 'The lab order was not placed. Order it from Lab orders')); }
+    }
+    if (img.modality && img.study.trim()) {
+      try { this.radSync.put(await this.radApi.create({ patientId, doctorId, modality: img.modality as 'X-ray', study: img.study.trim() })); out.push(`${img.modality} ordered`); }
+      catch (e) { this.toast.err(apiMessage(e, 'The imaging order was not placed. Order it from Radiology')); }
+    }
+    return out;
+  }
+
   private async signLive() {
     const c = this.cons(); if (!c) return;
     if (this.t) { clearTimeout(this.t); this.t = null; }
@@ -427,11 +447,9 @@ export class ConsultationPage {
       await this.saveLive(false); while (this.saving) await this.saving;
       const d = await this.api.complete(c.id, this.ver, this.override.trim());
       this.apply(d, true); this.review.set(false);
-      // Lab and imaging orders stay in this browser until those modules are connected to the server.
-      const p = this.patient()!;
-      if (this.tests().length) this.store.orderLab(p.id, c.doctorId, this.tests(), this.priority() as 'Routine');
+      const orders = await this.placeOrdersLive(this.patient()!.id, c.doctorId);
       const rx = d.prescription;
-      const bits = [rx?.items.length ? 'prescription sent to pharmacy' : '', this.tests().length ? `${this.tests().length} tests ordered` : ''].filter(Boolean).join(', ');
+      const bits = [rx?.items.length ? 'prescription sent to pharmacy' : '', ...orders].filter(Boolean).join(', ');
       this.toast.ok(`Consultation signed${bits ? ': ' + bits : ''}`);
     } catch (e) {
       const alerts = blockedAlerts(e);
