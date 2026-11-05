@@ -78,6 +78,9 @@ class AppointmentsQueueTest {
                   ('HS-26-00002','BR1','Rohit Menon','1988-07-21','Male','+91 90000 00002'),
                   ('HS-26-00003','BR1','Kavya Raman','1995-03-03','Female','+91 90000 00003'),
                   ('HS-26-00004','BR2','Joseph Thomas','1979-12-30','Male','+91 90000 00004')""").update();
+        // These rows bypass the UHID counter. Move it past them so test classes that run later in the same
+        // database (with another Spring context, which does not clean again) don't get HS-26-00001 again.
+        db.sql("insert into uhid_counter (yy, next) values (26, 5) on conflict (yy) do update set next = greatest(uhid_counter.next, 5)").update();
     }
 
     @BeforeEach
