@@ -226,9 +226,16 @@ public class KioskService {
     if (!in.consent()) throw new ApiException(400, "Consent is needed to register");
     if (in.name() == null || in.name().trim().length() < 2) throw new ApiException(400, "Enter your full name");
     String d = in.mobile() == null ? "" : in.mobile().replaceAll("\\D", "");
+    if (d.length() == 12 && d.startsWith("91")) d = d.substring(2);
     if (d.length() != 10) throw new ApiException(400, "Enter a 10 digit mobile number");
     if (in.dob() == null || !in.dob().isBefore(today())) throw new ApiException(400, "Enter your date of birth");
     if (!List.of("Female", "Male", "Other").contains(in.gender())) throw new ApiException(400, "Choose a gender");
+    // Someone who taps "New patient" twice, or forgot they registered, should not get a second record.
+    boolean known = db.sql("""
+        select exists (select 1 from patient p where right(regexp_replace(p.mobile, '\\D', '', 'g'), 10) = :m and p.dob = :dob
+                         and lower(regexp_replace(trim(p.name), '\\s+', ' ', 'g')) = lower(regexp_replace(trim(:n), '\\s+', ' ', 'g')))""")
+        .param("m", d).param("dob", in.dob()).param("n", in.name()).query(Boolean.class).single();
+    if (known) throw new ApiException(409, "You are already registered. Go back and use your mobile number to check in or for a walk-in visit.");
     String abha = in.abha() == null ? "" : in.abha().replaceAll("\\D", "");
     if (!abha.isEmpty() && abha.length() != 14) throw new ApiException(400, "ABHA number has 14 digits");
     String abhaFmt = abha.isEmpty() ? null : abha.substring(0, 2) + "-" + abha.substring(2, 6) + "-" + abha.substring(6, 10) + "-" + abha.substring(10);

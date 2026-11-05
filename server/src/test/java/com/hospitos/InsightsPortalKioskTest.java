@@ -282,6 +282,10 @@ class InsightsPortalKioskTest {
     assertThat(db.sql("select status from appointment where id = 'AP-T1'").query(String.class).single()).isEqualTo("Arrived");
 
     var reg = ok(post("/api/kiosk/register").content("{\"name\":\"Ravi Kumar\",\"mobile\":\"9123456780\",\"dob\":\"1988-01-01\",\"gender\":\"Male\",\"consent\":true}"), k);
+    // The same person registering again gets a clear answer, not a duplicate record.
+    mvc.perform(as(post("/api/kiosk/register").contentType("application/json")
+        .content("{\"name\":\"ravi  kumar\",\"mobile\":\"+91 91234 56780\",\"dob\":\"1988-01-01\",\"gender\":\"Male\",\"consent\":true}"), k))
+        .andExpect(status().isConflict());
     var walk = ok(post("/api/kiosk/walk-in").content("{\"patientId\":\"" + reg.get("patientId").asText() + "\",\"deptId\":\"DX\"}"), k);
     // The walk-in goes to the doctor with the shorter queue.
     assertThat(walk.get("doctorName").asText()).isEqualTo("Dr. Asha Menon");

@@ -1,9 +1,11 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { SessionService } from '../../core/services/session.service';
 import { Branch } from '../../core/models';
+import { LIVE } from '../../core/api/api-config';
+import { InsightsApi } from '../../core/api/insights-api';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -11,7 +13,7 @@ import { Branch } from '../../core/models';
   .ut { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; font-size:13px } .ut .bar { height:8px; background:var(--ground); border-radius:4px; overflow:hidden } .ut .bar i { display:block; height:100%; background:var(--pri); border-radius:4px }`],
   template: `
   <div class="page">
-    <cf-page-head title="Branches" [crumbs]="['Insights', 'Multi-branch']" sub="Compare branches this month. Udumalpet figures update from live demo data; other branches use sample figures."></cf-page-head>
+    <cf-page-head title="Branches" [crumbs]="['Insights', 'Multi-branch']" [sub]="isLive ? 'Compare branches this month, from billing, appointments and doctor schedules. Bed figures appear once the inpatient module is live.' : 'Compare branches this month. Udumalpet figures update from live demo data; other branches use sample figures.'"></cf-page-head>
     <div class="grid">
       <cf-stat class="c3" label="Revenue this month" [value]="(totalRev() | inr:true)" icon="indian-rupee" tone="pri" sub="All branches"></cf-stat>
       <cf-stat class="c3" label="OPD visits" [value]="fmtN(totalVisits())" icon="users" tone="blue"></cf-stat>
@@ -42,7 +44,12 @@ import { Branch } from '../../core/models';
 })
 export class BranchesPage {
   store = inject(StoreService); toast = inject(ToastService); session = inject(SessionService);
-  list = computed<Branch[]>(() => { this.store.rev(); const s = this.store.db; return s.branches.map(b => b.id === 'BR1' ? { ...b, occupancy: Math.round(s.beds.filter(x => x.status === 'Occupied').length / Math.max(1, s.beds.length) * 100), beds: s.beds.length, doctorsAvailable: s.doctors.filter(d => d.status !== 'On leave').length, doctors: s.doctors.length } : b); });
+  readonly isLive = LIVE; private api = inject(InsightsApi);
+  private live = signal<Branch[] | null>(null);
+  constructor() {
+    if (LIVE) this.api.branches().then(l => this.live.set(l.map(b => ({ ...(this.store.db.branches.find(x => x.id === b.id) ?? {}), ...b }) as Branch))).catch(() => this.toast.err('Could not load branch figures'));
+  }
+  list = computed<Branch[]>(() => { const L = this.live(); if (L) return L; this.store.rev(); const s = this.store.db; return s.branches.map(b => b.id === 'BR1' ? { ...b, occupancy: Math.round(s.beds.filter(x => x.status === 'Occupied').length / Math.max(1, s.beds.length) * 100), beds: s.beds.length, doctorsAvailable: s.doctors.filter(d => d.status !== 'On leave').length, doctors: s.doctors.length } : b); });
   labels = computed(() => this.list().map(b => b.name.replace('HospitOS ', '')));
   revs = computed(() => this.list().map(b => b.revenueMonth)); visits = computed(() => this.list().map(b => b.visitsMonth));
   totalRev = computed(() => this.revs().reduce((a, b) => a + b, 0)); totalVisits = computed(() => this.visits().reduce((a, b) => a + b, 0));
@@ -55,5 +62,5 @@ export class BranchesPage {
   fmtN(n: number) { return new Intl.NumberFormat('en-IN').format(n); }
   perVisit(b: Branch) { return Math.round(b.revenueMonth / Math.max(1, b.visitsMonth)); }
   util(b: Branch) { return Object.entries(b.utilisation).map(([k, v]) => ({ k, v })); }
-  switchTo(b: Branch) { this.session.setBranch(b.id); this.toast.info(`Switched to ${b.name}. Screens other than this one show Udumalpet demo data.`); }
+  switchTo(b: Branch) { this.session.setBranch(b.id); this.toast.info(LIVE ? `Switched to ${b.name}` : `Switched to ${b.name}. Screens other than this one show Udumalpet demo data.`); }
 }

@@ -11,9 +11,8 @@ import { Prescription } from '../../core/models';
 type Tab = 'home' | 'appts' | 'records' | 'bills' | 'feedback';
 const PATIENT = 'HS-23-01041';
 
-@Component({
-  standalone: true, imports: [SHARED, RxDocComponent],
-  styles: [`
+/** Shared with the live portal. */
+export const PORTAL_STYLES = `
     :host { display:block; min-height:100vh; background:var(--ground) }
     .top { position:sticky; top:0; z-index:20; background:var(--card); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; padding:12px max(16px,calc((100vw - 1080px)/2)) }
     .brand { display:flex; align-items:center; gap:8px; font-weight:800; font-size:17px } .brand i { width:26px; height:26px; border-radius:8px; background:var(--pri); display:grid; place-items:center; color:#fff; font-style:normal }
@@ -28,7 +27,11 @@ const PATIENT = 'HS-23-01041';
     .login { max-width:420px; margin:8vh auto; padding:0 16px }
     .stars button { border:0; background:none; padding:2px } .slot { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:8px } .slot button { border:1px solid var(--line); border-radius:10px; padding:8px 0; background:var(--card); font-weight:600; color:var(--fg) } .slot button.on { background:var(--pri); color:#fff; border-color:var(--pri) }
     @media (max-width:760px){ .hide-sm { display:none } .quick { grid-template-columns:repeat(2,minmax(0,1fr)) } .nav { position:fixed; bottom:0; left:0; right:0; border-radius:0; z-index:30; padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px)) } .nav button { flex-direction:column; font-size:11px; gap:2px; padding:6px 4px } }
-  `],
+  `;
+
+@Component({
+  standalone: true, imports: [SHARED, RxDocComponent],
+  styles: [PORTAL_STYLES],
   template: `
   <header class="top"><div class="brand"><app-logo></app-logo> <span class="muted small hide-sm" style="font-weight:600">Patient portal</span></div><span class="spacer"></span>
     <span class="demo-tag">Demo</span>

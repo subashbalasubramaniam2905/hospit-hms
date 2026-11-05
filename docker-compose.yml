@@ -32,6 +32,10 @@ services:
       ADMIN_PASSWORD: ChangeMe12345
       ADMIN_NAME: Super Admin
       TZ: Asia/Kolkata
+      # Local only: the portal sign-in code comes back in the response because no SMS gateway is connected.
+      PORTAL_DEV_OTP: "true"
+      # Set to turn on the AI assistant; without it the assistant answers with fixed rules.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports: ["8080:8080"]
 
 volumes:

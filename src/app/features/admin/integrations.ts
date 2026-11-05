@@ -6,9 +6,10 @@ import { Integration } from '../../core/models';
 import { LIVE } from '../../core/api/api-config';
 import { AdminApi, fromServerIntegration } from '../../core/api/admin-api';
 import { apiMessage } from '../../core/api/auth.service';
+import { KioskDevicesComponent } from '../kiosk/kiosk-devices';
 
 @Component({
-  standalone: true, imports: [SHARED],
+  standalone: true, imports: [SHARED, KioskDevicesComponent],
   styles: [`.ig { display:flex; flex-direction:column; gap:10px; cursor:pointer } .ig:hover { border-color:var(--pri) } .ig .top { display:flex; gap:12px; align-items:flex-start }
   .ig .ic { width:42px; height:42px; border-radius:12px; display:grid; place-items:center; background:var(--pri-soft); color:var(--pri); flex:none }
   .log { font-family:ui-monospace,monospace; font-size:12px; background:#0f1c1a; color:#b7f5e3; border-radius:10px; padding:12px; white-space:pre-wrap; min-height:90px }`],
@@ -17,6 +18,7 @@ import { apiMessage } from '../../core/api/auth.service';
     <cf-page-head title="Integrations" [crumbs]="['Organisation', 'Connections']" [sub]="live ? 'Connection settings for government, diagnostic, payment and messaging systems.' : 'Connections to government, diagnostic, payment and messaging systems. Every connection here is a mock: nothing leaves the prototype.'"></cf-page-head>
     @if (live) {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div><b>Not connected yet.</b> HospitOS stores these settings now, but it does not talk to any of these systems yet, so no message, claim or payment goes out. Secret values are encrypted on the server and never shown again. Only super administrators can open this page's data.</div></div>}
     @else {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div><b>Prototype only.</b> No external healthcare APIs are connected. Test connections return simulated results. Credentials shown are placeholders.</div></div>}
+    @if (live) {<cf-kiosk-devices></cf-kiosk-devices>}
     <div class="grid">
       <cf-stat class="c3" [label]="live ? 'Configured' : 'Connected'" [value]="by(live ? 'Configured' : 'Connected')" icon="plug" tone="green"></cf-stat>
       <cf-stat class="c3" label="Errors" [value]="by('Error')" icon="circle-alert" tone="red" [clickable]="true" (click)="cat.set('')"></cf-stat>

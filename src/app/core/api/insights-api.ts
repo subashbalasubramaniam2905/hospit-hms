@@ -149,3 +149,9 @@ export class KioskApi {
   newCode(id: string) { return firstValueFrom(this.http.post<{ id: string; code: string; expiresAt: string }>(`${this.url}/devices/${id}/pair-code`, {})); }
   revoke(id: string) { return firstValueFrom(this.http.post<void>(`${this.url}/devices/${id}/revoke`, {})); }
 }
+
+/** The branch to ask the server for: the picked branch when the account may see it, otherwise every branch it may see. */
+export function scopeBranch(s: { branchId: () => string; allowedBranches: () => string[] | null }): string | undefined {
+  const b = s.branchId(), allowed = s.allowedBranches();
+  return allowed === null || allowed.includes(b) ? b : undefined;
+}
