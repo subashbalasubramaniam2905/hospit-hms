@@ -24,6 +24,7 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 | `TOKEN_HOURS` | `8` | Sign-in lifetime. |
 | `CORS_ORIGINS` | `http://localhost:4200` | Comma-separated origins of the Angular app. |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | empty | First super administrator, used only when no accounts exist. |
+| `SECRET_KEY` | derived from `JWT_SECRET` | Encrypts integration secrets (API keys, tokens) at rest. **Set it in every real environment**; changing it makes stored secrets unreadable. |
 | `PORT` | `8080` | |
 
 ## API (foundation)
@@ -183,3 +184,15 @@ Study flow: Ordered → Scheduled → In progress → Awaiting report → Report
 | `PUT /api/radiology/orders/{id}/report` | radiologist, admins | `{findings, impression, version, submit}`. `submit` needs both and moves to Reported. |
 | `POST /api/radiology/orders/{id}/reopen`, `/verify`, `/cancel` | radiologist, admins (cancel also doctor, receptionist) | Cancel takes `{reason}`. |
 | `GET /api/radiology/orders/{id}/report` | radiology readers | The report with patient details and up to five earlier verified studies of the same modality. |
+
+## API (administration)
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/audit?entity=&entityId=&risk=&limit=` | super-admin, admin | Each entry has `risk`: `Flagged` (an admin flagged it), `Sensitive` (accounts, settings, money, exports, failed sign-ins) or `Normal`. |
+| `GET /api/audit/logins`, `POST /api/audit/{id}/flag`, `POST /api/audit/exported` | super-admin, admin | Sign-in history from the trail; flag an entry for review (`{note}`, stored beside the append-only trail); record a browser export. |
+| `GET /api/admin/config`, `PUT /api/admin/config` | read: signed in; change: super-admin, admin | Registration number, OPD hours, booking, queue and notification channel rules. Send `version`; stale gets 409. Name, GSTIN and address stay in `/api/billing/settings`. These rules are stored but the appointment and queue modules do not read them yet (they use each doctor's hours and slot length). |
+| `GET /api/admin/role-access`, `PUT /api/admin/role-access` | read: signed in; change: super-admin, admin | Screen access overrides `{role, path, level: Full, View or None}` used to build the sidebar. Module endpoints still enforce their own role rules. Only super admins change admin access. |
+| `GET/POST /api/admin/departments`, `PUT /api/admin/departments/{id}` | super-admin, admin | Add, rename or close (`active: false`) departments in your own branches. Ids are made from the name (`DERM`, `GM`). |
+| `GET/POST /api/admin/workflows`, `PUT/DELETE /api/admin/workflows/{id}`, `POST /api/admin/workflows/{id}/test` | super-admin, admin | Trigger, condition and action steps. There is no workflow engine yet: a test run lists what each step would do and sends nothing. |
+| `GET /api/admin/integrations`, `PUT /api/admin/integrations/{id}`, `POST /api/admin/integrations/{id}/test` | super-admin | Connection settings for ABDM, HL7, FHIR, LIS, PACS, payments, SMS, email, WhatsApp, TPA, accounting and devices. Secrets are AES-GCM encrypted with `SECRET_KEY` and never returned (`set: true` only); send an empty value to keep one, `-` to clear it. No connector is live yet, so a test only checks the settings are complete and status is at most `Configured`. |

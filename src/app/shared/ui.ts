@@ -15,7 +15,7 @@ const TONES: Record<string, string> = {
   // green
   Completed: 'g', Paid: 'g', Available: 'g', Active: 'g', Connected: 'g', Verified: 'g', Delivered: 'ok', Dispensed: 'g', Approved: 'g', Settled: 'ok', Given: 'g', Resolved: 'g', 'On duty': 'g', Received: 'g', Issued: 'g', Booked: 'g', Success: 'g', Read: 'g', Sent: 'b', 'In use': 'g', Normal: 'g', Discharged: 'n', Green: 'ok',
   // blue
-  Confirmed: 'b', Scheduled: 'b', Submitted: 'b', Ordered: 'b', 'In OPD': 'b', Reserved: 'b', Planned: 'b', 'Sent to pharmacy': 'b', 'Result ready': 'b', Reported: 'b', Requested: 'b', Due: 'b', Admitted: 'b', 'Pre-op': 'b', Observation: 'b', Queued: 'n',
+  Configured: 'b', Confirmed: 'b', Scheduled: 'b', Submitted: 'b', Ordered: 'b', 'In OPD': 'b', Reserved: 'b', Planned: 'b', 'Sent to pharmacy': 'b', 'Result ready': 'b', Reported: 'b', Requested: 'b', Due: 'b', Admitted: 'b', 'Pre-op': 'b', Observation: 'b', Queued: 'n',
   // amber
   Waiting: 'a', Arrived: 'a', Pending: 'a', 'Partially paid': 'a', 'Under review': 'a', 'Awaiting sample': 'a', 'Sample collected': 'a', Processing: 'a', 'Awaiting report': 'a', Cleaning: 'a', 'Running late': 'a', 'Discharge planned': 'a', Acknowledged: 'a', 'Partially dispensed': 'a', Signed: 'v', Draft: 'n', Medium: 'a', Sensitive: 'a', 'In progress': 'a', 'Under maintenance': 'a', Yellow: 'a', 'Not sent': 'n', Invited: 'a', Recovery: 'v', 'Follow-up due': 'b',
   // red/pink

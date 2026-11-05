@@ -149,7 +149,9 @@ export class StoreService {
     return t.paid >= t.total ? 'Paid' : t.paid > 0 ? 'Partially paid' : 'Unpaid';
   }
 
+  /** Demo audit trail. In live mode the server writes the real, hash-chained trail, so nothing is recorded here. */
   log(action: string, entity: string, detail: string, risk: 'Normal' | 'Sensitive' | 'Flagged' = 'Normal') {
+    if (LIVE) return;
     const acct = this.auth.account();
     const u = acct ? { userName: acct.name, roleId: acct.role } : (() => { try { return JSON.parse(localStorage.getItem('hospit-hms:session') || '{}'); } catch { return {}; } })();
     this.db.audit.unshift({ id: this.uid('AU'), time: this.nowStamp(), user: u.userName || 'Demo user', role: u.roleId || 'admin', action, entity, detail, ip: '10.20.1.15', branch: 'Udumalpet', risk });

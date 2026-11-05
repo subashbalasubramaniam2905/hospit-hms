@@ -3,6 +3,9 @@ import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Workflow, WorkflowStep } from '../../core/models';
+import { LIVE } from '../../core/api/api-config';
+import { AdminApi, fromServerWorkflow } from '../../core/api/admin-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 const PALETTE: Record<WorkflowStep['kind'], { label: string; detail: string }[]> = {
   trigger: [{ label: 'Appointment is booked', detail: 'Any department' }, { label: 'Patient checks in', detail: 'Kiosk or desk' }, { label: 'Lab result is verified', detail: 'Any test' }, { label: 'Invoice is overdue', detail: 'After 3 days' }, { label: 'Patient is discharged', detail: 'IPD' }, { label: 'Stock falls below reorder', detail: 'Pharmacy' }],
@@ -22,32 +25,33 @@ const PALETTE: Record<WorkflowStep['kind'], { label: string; detail: string }[]>
   .wire { width:2px; height:26px; background:var(--line) } .pal button { display:block; width:100%; text-align:left; padding:8px 10px; border-radius:8px; border:1px dashed var(--line); background:var(--card); margin-bottom:6px; font-size:13px; color:var(--fg) } .pal button:hover { border-color:var(--pri) }`],
   template: `
   <div class="page">
-    <cf-page-head title="Workflow builder" [crumbs]="['Organisation', 'Automation']" sub="Automate routine follow-through: when something happens, check a condition, then act. Runs are simulated.">
+    <cf-page-head title="Workflow builder" [crumbs]="['Organisation', 'Automation']" [sub]="live ? 'Workflows are saved for the hospital. They do not run on their own yet: a test run walks through the steps and sends nothing.' : 'Automate routine follow-through: when something happens, check a condition, then act. Runs are simulated.'">
       <button class="btn ghost" (click)="add()"><lucide-icon name="plus" [size]="16"></lucide-icon>New workflow</button>
     </cf-page-head>
     <div class="lay">
       <div class="card" style="padding:10px">
-        @for (w of list(); track w.id) {<button class="wf" [class.on]="cur()?.id === w.id" (click)="selId.set(w.id)"><lucide-icon name="workflow" [size]="16"></lucide-icon><div class="grow"><b>{{ w.name }}</b><span>{{ w.runs }} runs @if (!w.enabled) {· off}</span></div></button>}
+        @for (w of list(); track w.id) {<button class="wf" [class.on]="cur()?.id === w.id" (click)="selId.set(w.id)"><lucide-icon name="workflow" [size]="16"></lucide-icon><div class="grow"><b>{{ w.name }}</b><span>{{ w.runs }} {{ live ? 'test runs' : 'runs' }} @if (!w.enabled) {· off}</span></div></button>}
       </div>
       @if (cur(); as w) {
         <div class="card stack">
-          <div class="row"><input class="inp" style="font-weight:800;font-size:16px;max-width:360px" [(ngModel)]="w.name" aria-label="Workflow name" (change)="store.changed()"><span class="spacer"></span>
-            <mat-slide-toggle [checked]="w.enabled" (change)="toggle(w)">{{ w.enabled ? 'On' : 'Off' }}</mat-slide-toggle>
+          <div class="row"><input class="inp" style="font-weight:800;font-size:16px;max-width:360px" [(ngModel)]="w.name" aria-label="Workflow name" (change)="edited()"><span class="spacer"></span>
+            <mat-slide-toggle [checked]="w.enabled" (change)="toggle(w)" [disabled]="busy()">{{ w.enabled ? 'On' : 'Off' }}</mat-slide-toggle>
             <button class="btn ghost sm" [disabled]="running() >= 0" (click)="test(w)"><lucide-icon name="play" [size]="14"></lucide-icon>Test run</button>
-            <button class="btn sm" (click)="save(w)"><lucide-icon name="save" [size]="14"></lucide-icon>Save</button></div>
+            <button class="btn sm" [disabled]="busy()" (click)="save(w)"><lucide-icon name="save" [size]="14"></lucide-icon>Save</button></div>
           <div class="canvas">
             @for (s of w.steps; track $index; let i = $index, last = $last) {
               <div class="node {{ s.kind }}" [class.run]="running() === i">
                 <lucide-icon [name]="s.kind === 'trigger' ? 'zap' : s.kind === 'condition' ? 'git-branch' : 'send'" [size]="18"></lucide-icon>
                 <div class="grow"><div class="k" [style.color]="s.kind === 'trigger' ? 'var(--pri)' : s.kind === 'condition' ? 'var(--amber)' : 'var(--blue)'">{{ s.kind === 'trigger' ? 'When' : s.kind === 'condition' ? 'Only if' : 'Then' }}</div>
-                  <input [(ngModel)]="s.label" [attr.aria-label]="'Step ' + (i + 1)"><input class="d" [(ngModel)]="s.detail" placeholder="Details" [attr.aria-label]="'Step ' + (i + 1) + ' details'"></div>
+                  <input [(ngModel)]="s.label" (change)="edited()" [attr.aria-label]="'Step ' + (i + 1)"><input class="d" [(ngModel)]="s.detail" (change)="edited()" placeholder="Details" [attr.aria-label]="'Step ' + (i + 1) + ' details'"></div>
                 <div class="row" style="gap:2px"><button class="iconbtn" [disabled]="i < 2" (click)="move(w, i, -1)" aria-label="Move up"><lucide-icon name="chevron-up" [size]="14"></lucide-icon></button><button class="iconbtn" [disabled]="i === 0 || last" (click)="move(w, i, 1)" aria-label="Move down"><lucide-icon name="chevron-down" [size]="14"></lucide-icon></button>
                   <button class="iconbtn" [disabled]="i === 0" (click)="remove(w, i)" aria-label="Remove step"><lucide-icon name="trash-2" [size]="14"></lucide-icon></button></div>
               </div>
               @if (!last) {<div class="wire"></div>}
             }
           </div>
-          <div class="muted small">Last run {{ w.lastRun || 'never' }} · Steps run top to bottom. A failed condition stops the run.</div>
+          <div class="muted small">Last {{ live ? 'test ' : '' }}run {{ w.lastRun || 'never' }} · Steps run top to bottom. A failed condition stops the run.@if (live && dirty()) { <b>Unsaved changes.</b>}</div>
+          @if (runLog().length) {<div class="soft small" style="padding:10px 12px;border-radius:10px">@for (l of runLog(); track $index) {<div>{{ l }}</div>}</div>}
         </div>
         <div class="card pal">
           <div class="card-h"><h3>Add a step</h3></div>
@@ -62,22 +66,57 @@ const PALETTE: Record<WorkflowStep['kind'], { label: string; detail: string }[]>
   </div>`
 })
 export class WorkflowsPage {
-  store = inject(StoreService); toast = inject(ToastService);
-  palette = PALETTE; selId = signal('WF1'); running = signal(-1);
+  store = inject(StoreService); toast = inject(ToastService); api = inject(AdminApi);
+  live = LIVE; palette = PALETTE; selId = signal('WF1'); running = signal(-1); busy = signal(false); dirty = signal(false); runLog = signal<string[]>([]);
   list = computed(() => { this.store.rev(); return this.store.db.workflows; });
   cur = computed(() => this.list().find(w => w.id === this.selId()) || this.list()[0]);
-  push(w: Workflow, kind: WorkflowStep['kind'], p: { label: string; detail: string }) { w.steps.push({ kind, label: p.label, detail: p.detail }); this.store.changed(); }
-  move(w: Workflow, i: number, d: number) { const [s] = w.steps.splice(i, 1); w.steps.splice(i + d, 0, s); this.store.changed(); }
-  remove(w: Workflow, i: number) { w.steps.splice(i, 1); this.store.changed(); }
+
+  constructor() { if (LIVE) { this.store.db.workflows = []; this.reload(); } }
+  private async reload(keep?: string) {
+    try { this.store.db.workflows = (await this.api.workflows()).map(fromServerWorkflow); this.dirty.set(false); if (keep) this.selId.set(keep); this.store.changed(); }
+    catch (e) { this.toast.err(apiMessage(e, 'Could not load workflows')); }
+  }
+  edited() { this.dirty.set(true); this.store.changed(); }
+  push(w: Workflow, kind: WorkflowStep['kind'], p: { label: string; detail: string }) { w.steps.push({ kind, label: p.label, detail: p.detail }); this.edited(); }
+  move(w: Workflow, i: number, d: number) { const [s] = w.steps.splice(i, 1); w.steps.splice(i + d, 0, s); this.edited(); }
+  remove(w: Workflow, i: number) { w.steps.splice(i, 1); this.edited(); }
+  /** Live mode: saves the workflow as shown, with the given on/off state. */
+  private async put(w: Workflow, enabled: boolean, ok: string) {
+    this.busy.set(true);
+    try { const u = await this.api.updateWorkflow(w.id, { name: w.name.trim() || 'Untitled workflow', enabled, steps: w.steps, version: w.version ?? 0 }); this.toast.ok(ok); await this.reload(u.id); }
+    catch (e) { this.toast.err(apiMessage(e, 'Could not save the workflow')); await this.reload(w.id); }
+    finally { this.busy.set(false); }
+  }
   toggle(w: Workflow) {
-    if (!w.enabled && !w.steps.some(s => s.kind === 'action')) { this.toast.err('Add at least one action before turning this on'); return; }
+    if (!w.enabled && !w.steps.some(s => s.kind === 'action')) { this.toast.err('Add at least one action before turning this on'); this.store.changed(); return; }
+    if (this.live) { this.put(w, !w.enabled, `${w.name} is ${!w.enabled ? 'on' : 'off'}`); return; }
     w.enabled = !w.enabled; this.store.log('Changed', 'Workflow', `${w.name} ${w.enabled ? 'enabled' : 'disabled'}`); this.store.changed(); this.toast.ok(`${w.name} is ${w.enabled ? 'on' : 'off'}`);
   }
-  save(w: Workflow) { if (w.steps[0]?.kind !== 'trigger') { this.toast.err('The first step must be a trigger'); return; } this.store.log('Changed', 'Workflow', `${w.name} saved (${w.steps.length} steps)`); this.store.changed(); this.toast.ok('Workflow saved'); }
-  test(w: Workflow) {
-    if (!w.steps.length) { this.toast.err('Add a trigger first'); return; }
-    let i = 0; this.running.set(0);
-    const t = setInterval(() => { i++; if (i >= w.steps.length) { clearInterval(t); this.running.set(-1); w.runs++; w.lastRun = this.store.nowStamp(); this.store.changed(); this.toast.ok(`Test run finished: ${w.steps.filter(s => s.kind === 'action').length} actions simulated, nothing sent`); } else this.running.set(i); }, 600);
+  save(w: Workflow) {
+    if (w.steps[0]?.kind !== 'trigger') { this.toast.err('The first step must be a trigger'); return; }
+    if (this.live) { this.put(w, w.enabled, 'Workflow saved'); return; }
+    this.store.log('Changed', 'Workflow', `${w.name} saved (${w.steps.length} steps)`); this.store.changed(); this.toast.ok('Workflow saved');
   }
-  add() { const w: Workflow = { id: this.store.uid('WF'), name: 'New workflow', enabled: false, runs: 0, steps: [] }; this.store.db.workflows.push(w); this.store.changed(); this.selId.set(w.id); }
+  async test(w: Workflow) {
+    if (!w.steps.length) { this.toast.err('Add a trigger first'); return; }
+    let log: string[] = [];
+    if (this.live) {
+      if (this.dirty()) { this.toast.err('Save the workflow before a test run'); return; }
+      try { const r = await this.api.testWorkflow(w.id); log = r.log; const u = fromServerWorkflow(r.workflow); w.runs = u.runs; w.lastRun = u.lastRun; w.version = u.version; }
+      catch (e) { this.toast.err(apiMessage(e, 'Could not run the test')); return; }
+    }
+    this.runLog.set([]);
+    let i = 0; this.running.set(0);
+    const t = setInterval(() => { i++; if (i >= w.steps.length) { clearInterval(t); this.running.set(-1);
+      if (this.live) this.runLog.set(log); else { w.runs++; w.lastRun = this.store.nowStamp(); }
+      this.store.changed(); this.toast.ok(`Test run finished: ${w.steps.filter(s => s.kind === 'action').length} actions ${this.live ? 'listed' : 'simulated'}, nothing sent`); } else this.running.set(i); }, 600);
+  }
+  async add() {
+    if (this.live) {
+      try { const w = await this.api.createWorkflow({ name: 'New workflow', enabled: false, steps: [] }); await this.reload(w.id); }
+      catch (e) { this.toast.err(apiMessage(e, 'Could not create the workflow')); }
+      return;
+    }
+    const w: Workflow = { id: this.store.uid('WF'), name: 'New workflow', enabled: false, runs: 0, steps: [] }; this.store.db.workflows.push(w); this.store.changed(); this.selId.set(w.id);
+  }
 }

@@ -43,6 +43,11 @@ export class BillingApi {
   }
 
   settings() { return firstValueFrom(this.http.get<SSettingsView>(`${this.url}/settings`)); }
+  updateSettings(b: Omit<SSettings, 'sampleData'>) { return firstValueFrom(this.http.put<SSettings>(`${this.url}/settings`, b)); }
+  updateTaxRate(category: SCategory, b: { gstPct: number; hsnSac?: string; note?: string }) { return firstValueFrom(this.http.put<unknown>(`${this.url}/tax-rates/${category}`, b)); }
+  updateTariff(id: string, b: { code: string; name: string; category: SCategory; price: number; taxPct?: number | null; hsnSac?: string; department?: string; active?: boolean; version?: number }) {
+    return firstValueFrom(this.http.put<STariff>(`${this.url}/tariff/${id}`, b));
+  }
   summary() { return firstValueFrom(this.http.get<SSummary>(`${this.url}/summary`)); }
   tariff(q: string, category?: SCategory) { return firstValueFrom(this.http.get<STariff[]>(`${this.url}/tariff`, { params: this.p({ q, category }) })); }
   invoices(f: { q?: string; status?: string; kind?: SKind; patientId?: string; limit?: number } = {}) {
