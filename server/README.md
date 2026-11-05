@@ -69,7 +69,7 @@ daily break in `doctor.break_start/break_end` (13:00 to 14:00 by default).
 
 - **Package:** `com.hospitos.<module>` (for example `com.hospitos.appointments`). Controllers under `/api/<module>`.
 - **Database:** plain SQL through `JdbcClient`. Flyway versions are reserved per module so parallel work never collides:
-  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49, radiology V50–V59.
+  foundation V1–V9, appointments and queue V10–V19, clinical V20–V29, billing V30–V39, pharmacy V40–V44, lab V45–V49, radiology V50–V59, emergency and OT V60–V69, inpatients V70–V79, admin/staff/inventory V80–V89.
   Use snake_case. Use `text` ids where the Angular model already has readable ids, `uuid` otherwise.
 - **Keys you will reference:** `patient(id text)` (UHID), `branch(id text)` (`BR1` Udumalpet, `BR2` Pollachi, `BR3` Palani),
   `department(id text)`, `doctor(id text, dept_id, user_id → app_user)`, `app_user(id uuid)`.
@@ -210,3 +210,34 @@ Package `com.hospitos.ot`, Flyway V61. Each branch has OT-1 to OT-3.
 | `POST /api/ot/surgeries/{id}/advance` | doctor, nurse, admins | `{from}`: Scheduled → Pre-op → In progress → Recovery → Completed. Starting surgery needs every checklist item; a stale `from` is refused. |
 | `POST /api/ot/surgeries/{id}/cancel` | doctor, receptionist, admins | `{reason?}`, before surgery starts. Releases the slot. |
 | `PUT /api/ot/surgeries/{id}/notes` | doctor, nurse, admins | `{postOpNotes}` once in recovery. |
+
+## API (inpatients)
+
+Wards, beds, admissions, the ward record and discharge. Package `com.hospitos.ipd`, migrations V70–V71, controllers under `/api/ipd`.
+Everyone in `super-admin, admin, doctor, nurse, receptionist, billing` can read; front desk and billing get admissions **without** the
+clinical record (notes, MAR, observations, intake/output, care plan, discharge summary). Only doctors and nurses write the ward record.
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/ipd/wards?branchId=`, `GET /api/ipd/beds?branchId=` | all | The branch's wards (with daily room rate) and beds. Defaults to the user's first branch. |
+| `POST /api/ipd/wards`, `PUT /api/ipd/wards/{id}`, `POST /api/ipd/wards/{id}/beds` | super-admin, admin | Set up wards, room rates and beds. |
+| `POST /api/ipd/beds/{id}/status` `{status}` | ward and front desk | Available, Reserved, Cleaning or Maintenance. An occupied bed cannot be changed. |
+| `GET /api/ipd/admissions?status=current\|discharged\|all&patientId=&branchId=` | all | Lists carry the latest 20 notes and observations. |
+| `GET /api/ipd/admissions/{id}` | all | The full record. Reads by clinical staff are audited. |
+| `POST /api/ipd/admissions` | front desk, billing, doctor, nurse | `{patientId, doctorId, bedId, type, reason, diagnosis, expectedDischarge, advance, advanceMode, advanceReference, consent, preauth, erCaseId}` → `{admission, claimNumber, warning}`. Needs `consent: true`. One open admission per patient; the bed must be Available or Reserved (409 otherwise). `preauth` drafts a cashless pre-authorisation in billing from the patient's insurance. Ids are `IPD-02500` onwards. |
+| `POST .../{id}/transfer` `{bedId}` | ward and front desk | Moves the patient; the old bed goes to Cleaning. |
+| `PATCH .../{id}` `{diagnosis, expectedDischarge, version}`, `POST .../{id}/plan-discharge` | doctor (plan: also nurse) | |
+| `POST .../{id}/notes` `{type, text}`, `.../care-plan`, `.../mar`, `.../mar/{marId}` `{status, note}`, `.../obs`, `.../io` | doctor, nurse | Doctor rounds only by doctors, nursing notes only by nurses. Held or missed doses need a reason. Observations get a NEWS2 score; 5 or more writes an `Escalation` audit entry. |
+| `GET .../{id}/bill` | all | The running bill before GST. |
+| `POST .../{id}/deposits` | super-admin, admin, billing, receptionist | Advance deposit with receipt `ADV-000001`. |
+| `POST .../{id}/charges`, `DELETE .../{id}/charges/{chargeId}` | add: billing, doctor, nurse; remove: billing | Services for the final bill, by tariff code or description, category and rate. |
+| `POST .../{id}/discharge` `{summary, checklist}` | super-admin, admin, doctor | Raises the final IPD invoice through `BillingApi`, adjusts the deposit against it (paid as `ADVANCE`), frees the bed for cleaning and closes the record. |
+| `POST .../{id}/refund-deposit` `{mode, reference}` | super-admin, admin, billing | After discharge, refunds what is left of the deposit. |
+
+**Final bill.** Room charges use a midnight census: each night is charged at the rate of the ward the patient was in at midnight, and a
+stay that crosses no midnight is one day. Nursing is `NUR-DAY` per day, and consultant visits are `IPD-VISIT` (added to the tariff by V70) per
+doctor-round note, so billing staff change those prices in the tariff. Pharmacy and lab bills raised during the stay stay separate invoices.
+
+**Known gaps.** Ward layout and room rates in V71 are a SAMPLE for Udumalpet (20 beds) and Pollachi (45 beds); change them before go-live.
+Advance deposits are kept by the IPD module, so they are not in the billing desk's "collected today" yet. MAR doses are single entries (no
+repeating schedules), NEWS2 leaves out consciousness and oxygen, and escalations only reach the audit trail until notifications exist.
