@@ -5,7 +5,7 @@ spring:
     username: ${DATABASE_USER:hospit}
     password: ${DATABASE_PASSWORD:hospit}
   flyway:
-    locations: classpath:db/migration
+    locations: ${FLYWAY_LOCATIONS:classpath:db/migration}
   jackson:
     default-property-inclusion: non_null
 server:
@@ -19,7 +19,7 @@ hospitos:
   # Must be at least 32 characters. Set JWT_SECRET in every real environment.
   jwt-secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
   token-hours: ${TOKEN_HOURS:8}
-  cors-origins: ${CORS_ORIGINS:http://localhost:4200}
+  cors-origins: ${CORS_ORIGINS:http://localhost:4200,http://localhost:4201}
   # Creates the first super administrator when no accounts exist yet.
   bootstrap-admin:
     email: ${ADMIN_EMAIL:}
