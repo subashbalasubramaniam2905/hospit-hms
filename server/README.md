@@ -304,3 +304,19 @@ An admin adds a kiosk and gets an 8-character pairing code (15 minutes, single u
 | --- | --- | --- |
 | `GET /api/ai/status` | admins, doctor, billing | `{live, model}`. |
 | `POST /api/ai/ask` `{question, history, branch}` | admins, doctor, billing | Answers from today's dashboard figures for the user's branches: counts and amounts only, never patient names, UHIDs or notes. With `ANTHROPIC_API_KEY` the figures and question go to Claude; without it, or if the call fails or is refused, fixed rules answer. Every question is audited. |
+
+## API (staff, stores and notifications)
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET/POST /api/staff?branch=`, `PUT/DELETE /api/staff/{id}` | super-admin, admin, hr | Staff directory. `status` shows `On leave` while approved leave covers today; `attendancePct` covers the last 30 days and is left out when nothing was marked. Updates send `version`; delete deactivates. |
+| `GET/POST /api/staff/leave`, `POST /api/staff/leave/{id}/decide` | super-admin, admin, hr | Leave requests and `{status: Approved or Rejected}`. |
+| `GET/PUT /api/staff/roster?branch=&week=` | super-admin, admin, hr | Weekly shifts. Unpublished weeks show each person's usual shift with Sunday off. Publishing puts a note in the inbox of staff linked to a user account. |
+| `GET/PUT /api/staff/attendance?date=` | super-admin, admin, hr | Manual daily register (`Present`, `Absent`, `Half day`, `Leave`). No future dates, nothing older than 31 days. There is no biometric device link. |
+| `GET/POST /api/staff/payroll?branch=&month=` | read: super-admin, admin, hr; record: super-admin, admin | Preview with illustrative deductions (PF 12%, professional tax ₹200, loss of pay for absent days). Recording a month twice gets 409. Nothing is paid or sent to a bank. |
+| `GET/POST /api/inventory/items`, `PUT /api/inventory/items/{id}`, `POST .../issue`, `POST .../count`, `GET /api/inventory/moves` | read: super-admin, admin, inventory, nurse, pharmacist; change: super-admin, admin, inventory | General stores (not medicines). Issuing more than is in stock gets 409; crossing the reorder level puts a note in the inventory team's inbox. Every change is a stock move. |
+| `GET/POST /api/inventory/assets`, `POST .../{id}/status`, `POST .../{id}/service` | same | Equipment register. Logging a service sets the next one six months out unless given. |
+| `GET /api/procurement/suppliers`, `GET/POST /api/procurement/requisitions`, `POST .../{id}/decide`, `POST .../{id}/issue` | raise: stores readers; decide and issue: stores managers | Department requisitions. Issuing takes every line from stock or none. |
+| `GET/POST /api/procurement/orders`, `POST .../{id}/status`, `POST .../{id}/receive` | super-admin, admin, inventory, pharmacist (pharmacists raise Pharmacy orders only) | Requested → Approved → Ordered → Received, or Cancelled before receipt. Approving needs an admin, not your own order (except a super admin), and a super admin above ₹1,00,000. Receipt sends `version` and lines; Pharmacy lines need batch and expiry and go into pharmacy stock. Orders are not emailed to suppliers. |
+| `GET/POST /api/notifications/messages` | super-admin, admin, receptionist | Patient messages by SMS, email or WhatsApp. No provider is connected, so messages are recorded as `Queued` with the reason, and patients without a mobile or email are skipped. |
+| `GET /api/notifications/inbox`, `POST .../inbox/{id}/read`, `POST .../inbox/read-all` | signed in | Staff inbox: notes addressed to you, your role or your branch. |

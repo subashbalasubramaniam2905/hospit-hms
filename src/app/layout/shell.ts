@@ -6,11 +6,12 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { filter } from 'rxjs';
 import { AccessService } from '../core/services/access.service';
+import { InboxService } from '../core/services/inbox.service';
 import { SessionService } from '../core/services/session.service';
 import { ThemeService } from '../core/services/theme.service';
 import { StoreService } from '../core/services/store.service';
 import { ToastService } from '../core/services/toast.service';
-import { RoleId } from '../core/models';
+import { InAppNote, RoleId } from '../core/models';
 import { AvatarComponent, LogoComponent } from '../shared';
 
 @Component({
@@ -19,7 +20,7 @@ import { AvatarComponent, LogoComponent } from '../shared';
   templateUrl: './shell.html', styleUrl: './shell.scss'
 })
 export class ShellComponent {
-  session = inject(SessionService); theme = inject(ThemeService); store = inject(StoreService); toast = inject(ToastService); router = inject(Router); access = inject(AccessService);
+  session = inject(SessionService); theme = inject(ThemeService); store = inject(StoreService); toast = inject(ToastService); router = inject(Router); access = inject(AccessService); inbox = inject(InboxService);
   sideOpen = signal(false);
   q = signal(''); searchOpen = signal(false); listening = signal(false);
   noteOpen = signal(false);
@@ -43,6 +44,7 @@ export class ShellComponent {
     if (this.session.live) {
       this.store.syncPatients().catch(() => this.toast.err('Could not load patients from the server'));
       this.access.load().catch(() => undefined); // the built-in screen access applies until the hospital's rules load
+      this.inbox.start();
     }
   }
 
@@ -64,8 +66,8 @@ export class ShellComponent {
     if (r === 'patient') { this.router.navigate(['/portal']); return; }
     this.router.navigate(['/dashboard']); this.toast.ok(`Now viewing as ${this.session.role()!.name} (demo role)`);
   }
-  openNote(n: { id: string; link?: string }) { const x = this.store.db.inbox.find(i => i.id === n.id); if (x) { x.read = true; this.store.changed(); } if (n.link) this.go(n.link); }
-  markAllRead() { this.store.db.inbox.forEach(n => n.read = true); this.store.changed(); }
+  openNote(n: InAppNote) { this.inbox.read(n); if (n.link) this.go(n.link); }
+  markAllRead() { this.inbox.readAll(); }
   signOut() { this.session.signOut(); this.router.navigate(['/login']); }
   branches = computed(() => { const a = this.session.allowedBranches(); return this.store.db.branches.filter(b => !a || a.includes(b.id)); });
   resetDemo() { this.store.reset(); this.toast.ok('Demo data reset to the original fictional records'); this.router.navigate(['/dashboard']); }

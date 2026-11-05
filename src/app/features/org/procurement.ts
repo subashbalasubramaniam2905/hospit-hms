@@ -3,6 +3,13 @@ import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { POItem, PurchaseOrder, Requisition } from '../../core/models';
+import { LIVE } from '../../core/api/api-config';
+import { OrgApi, fromServerItem, fromServerPo, fromServerReq } from '../../core/api/org-api';
+import { apiMessage } from '../../core/api/auth.service';
+import { SessionService } from '../../core/services/session.service';
+import { LiveSync } from '../../core/api/live-sync';
+
+type GrnLine = POItem & { batch?: string; expiry?: string };
 
 type Tab = 'req' | 'po' | 'grn' | 'suppliers';
 
@@ -10,7 +17,7 @@ type Tab = 'req' | 'po' | 'grn' | 'suppliers';
   standalone: true, imports: [SHARED],
   template: `
   <div class="page">
-    <cf-page-head title="Procurement" [crumbs]="['Organisation', 'Purchasing']" sub="Requisition → approval → purchase order → goods receipt. Supplier portals are simulated.">
+    <cf-page-head title="Procurement" [crumbs]="['Organisation', 'Purchasing']" [sub]="live ? 'Requisition → approval → purchase order → goods receipt. Orders are not emailed to suppliers yet: send them yourself.' : 'Requisition → approval → purchase order → goods receipt. Supplier portals are simulated.'">
       <button class="btn" (click)="newPo.set(true)"><lucide-icon name="plus" [size]="16"></lucide-icon>New purchase order</button>
     </cf-page-head>
     <div class="grid">
@@ -41,8 +48,9 @@ type Tab = 'req' | 'po' | 'grn' | 'suppliers';
           <div class="card stack-s">
             <div class="row"><b>{{ p.id }}</b><cf-status [s]="p.status"></cf-status><span class="spacer"></span><span class="small muted">expected {{ p.expected ? (p.expected | d) : '—' }}</span></div>
             <div class="small">{{ store.supplier(p.supplierId)?.name }}</div>
-            @for (i of p.items; track i.itemId) { <div class="row small"><span style="flex:1">{{ i.name }}</span><span class="muted">ordered {{ i.qty }}</span><input class="inp" style="width:80px;padding:5px 8px" type="number" [(ngModel)]="i.received" [placeholder]="'' + i.qty" aria-label="Received quantity"></div> }
-            <button class="btn sm" (click)="receive(p)"><lucide-icon name="package" [size]="14"></lucide-icon>Record goods receipt</button>
+            @for (i of grn(p); track i.itemId) { <div class="row small" style="flex-wrap:wrap"><span style="flex:1">{{ i.name }}</span><span class="muted">ordered {{ i.qty }}</span><input class="inp" style="width:80px;padding:5px 8px" type="number" [(ngModel)]="i.received" [placeholder]="'' + i.qty" aria-label="Received quantity">
+              @if (live && p.kind === 'Pharmacy') {<input class="inp" style="width:110px;padding:5px 8px" [(ngModel)]="i.batch" placeholder="Batch" aria-label="Batch number"><input class="inp" style="width:140px;padding:5px 8px" type="date" [(ngModel)]="i.expiry" aria-label="Expiry date">}</div> }
+            <button class="btn sm" [disabled]="busy() || p.status !== 'Ordered'" (click)="receive(p)"><lucide-icon name="package" [size]="14"></lucide-icon>Record goods receipt</button>@if (p.status === 'Approved') {<span class="muted small">Send it to the supplier first</span>}
           </div>
         } @empty { <div class="card"><cf-empty icon="truck" title="No open orders"></cf-empty></div> }
       </div>
@@ -59,7 +67,7 @@ type Tab = 'req' | 'po' | 'grn' | 'suppliers';
       <div class="stepper">@for (s of flow; track s; let i = $index) {<span class="s" [class.done]="i < flow.indexOf(p.status)" [class.cur]="s === p.status">{{ s }}</span>}</div>
       <div class="tbl"><table class="t"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead><tbody>@for (i of p.items; track i.itemId) {<tr><td>{{ i.name }}</td><td class="num">{{ i.qty }}</td><td class="num">{{ i.cost | inr }}</td><td class="num">{{ i.qty * i.cost | inr }}</td></tr>}</tbody>
         <tfoot><tr><td colspan="3" class="num"><b>Total</b></td><td class="num"><b>{{ total(p) | inr }}</b></td></tr></tfoot></table></div>
-      @if (total(p) > 100000 && p.status === 'Requested') { <div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon>Above ₹1 lakh: needs a second approver (simulated rule).</div> }
+      @if (total(p) > 100000 && p.status === 'Requested') { <div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon>@if (live) {Above ₹1 lakh: needs a super administrator to approve.} @else {Above ₹1 lakh: needs a second approver (simulated rule).}</div> }
       <div class="small muted">Requested by {{ p.requestedBy }} on {{ p.date | d:true }}</div>
     }
     <div foot>@if (sel(); as p) {
@@ -74,11 +82,12 @@ type Tab = 'req' | 'po' | 'grn' | 'suppliers';
       <div class="field"><label>Add item</label><select class="inp" [(ngModel)]="np.pick" (ngModelChange)="addLine($event)"><option value="">Choose</option>@if (np.kind === 'Pharmacy') { @for (m of store.db.medicines; track m.id) {<option [value]="m.id">{{ m.brand }} {{ m.strength }}</option>} } @else { @for (i of store.db.inventory; track i.id) {<option [value]="i.id">{{ i.name }}</option>} }</select></div>
       @for (l of np.items; track l.itemId; let k = $index) { <div class="row"><span style="flex:1" class="small">{{ l.name }}</span><input class="inp" style="width:80px" type="number" [(ngModel)]="l.qty"><input class="inp" style="width:90px" type="number" [(ngModel)]="l.cost"><button class="iconbtn" (click)="np.items.splice(k, 1)" aria-label="Remove"><lucide-icon name="x" [size]="14"></lucide-icon></button></div> }
     </div>
-    <div foot><button class="btn ghost" (click)="newPo.set(false)">Cancel</button><button class="btn" [disabled]="!np.items.length" (click)="createPo()">Raise PO</button></div>
+    <div foot><button class="btn ghost" (click)="newPo.set(false)">Cancel</button><button class="btn" [disabled]="!np.items.length || busy()" (click)="createPo()">Raise PO</button></div>
   </cf-drawer>`
 })
 export class ProcurementPage {
-  store = inject(StoreService); toast = inject(ToastService);
+  store = inject(StoreService); toast = inject(ToastService); api = inject(OrgApi); session = inject(SessionService); sync = inject(LiveSync);
+  live = LIVE; busy = signal(false); private grnLines = new Map<string, GrnLine[]>();
   tabs: { id: Tab; label: string }[] = [{ id: 'req', label: 'Requisitions' }, { id: 'po', label: 'Purchase orders' }, { id: 'grn', label: 'Goods receipt' }, { id: 'suppliers', label: 'Suppliers' }];
   flow: PurchaseOrder['status'][] = ['Requested', 'Approved', 'Ordered', 'Received'];
   tab = signal<Tab>('po'); sel = signal<PurchaseOrder | null>(null); newPo = signal(false);
@@ -94,14 +103,62 @@ export class ProcurementPage {
   spend = computed(() => this.pos().filter(p => p.status === 'Received' && p.date.slice(0, 7) === this.store.today().slice(0, 7)).reduce((t, p) => t + this.total(p), 0) || this.pos().filter(p => p.status === 'Received').reduce((t, p) => t + this.total(p), 0));
   total(p: PurchaseOrder) { return Math.round(p.items.reduce((t, i) => t + i.qty * i.cost, 0)); }
   reqItems(r: Requisition) { return r.items.map(i => `${i.name} × ${i.qty}`).join(', '); }
-  setReq(r: Requisition, s: Requisition['status']) { r.status = s; this.store.log(s, 'Requisition', r.id); this.store.changed(); this.toast.ok(`${r.id} ${s.toLowerCase()}`); }
-  issueReq(r: Requisition) { r.items.forEach(i => { const it = this.store.db.inventory.find(x => x.id === i.itemId); if (it) it.stock = Math.max(0, it.stock - i.qty); }); r.status = 'Issued'; this.store.log('Issued', 'Requisition', r.id); this.store.changed(); this.toast.ok(`${r.id} issued to ${r.dept}. Stock reduced.`); }
-  setPo(p: PurchaseOrder, s: PurchaseOrder['status']) { p.status = s; if (s === 'Ordered') { p.expected = this.store.day(3); this.toast.ok(`${p.id} emailed to ${this.store.supplier(p.supplierId)?.name} (simulated)`); } else this.toast.ok(`${p.id} ${s.toLowerCase()}`); this.store.log(s, 'Purchase order', p.id); this.store.changed(); }
-  receive(p: PurchaseOrder) { p.items.forEach(i => { if (i.received == null || (i.received as unknown) === '') i.received = i.qty; i.qty = +i.received!; }); this.store.receivePO(p); this.toast.ok(`Goods received against ${p.id}. Stock and batches updated.`); }
+  constructor() { if (LIVE) { this.store.db.requisitions = []; this.store.db.purchaseOrders = []; this.reload(); } }
+  async reload() {
+    try {
+      const b = this.session.branchId();
+      const [reqs, pos, sup, items] = await Promise.all([this.api.requisitions(), this.api.orders(), this.api.suppliers(), this.api.items(b), this.sync.loadPharmacy(b).catch(() => undefined)]);
+      this.store.db.requisitions = reqs.map(fromServerReq); this.store.db.purchaseOrders = pos.map(fromServerPo); this.store.db.suppliers = sup;
+      this.store.db.inventory = items.map(fromServerItem); this.grnLines.clear(); this.store.changed();
+      if (!sup.some(x => x.id === this.np.supplierId) && sup.length) this.np.supplierId = sup[0].id;
+    } catch (e) { this.toast.err(apiMessage(e, 'Could not load procurement')); }
+  }
+  private async run(f: () => Promise<unknown>, ok: string, fail: string) {
+    this.busy.set(true);
+    try { await f(); this.toast.ok(ok); await this.reload(); return true; } catch (e) { this.toast.err(apiMessage(e, fail)); return false; } finally { this.busy.set(false); }
+  }
+  /** Lines for the goods receipt form. Live mode keeps them apart from the order, so the order shows what the server holds. */
+  grn(p: PurchaseOrder): GrnLine[] {
+    if (!this.live) return p.items;
+    let l = this.grnLines.get(p.id); if (!l) { l = p.items.map(i => ({ ...i, received: undefined })); this.grnLines.set(p.id, l); } return l;
+  }
+  setReq(r: Requisition, s: Requisition['status']) {
+    if (this.live) { this.run(() => this.api.decideReq(r.id, s as 'Approved' | 'Rejected'), `${r.id} ${s.toLowerCase()}`, 'Could not update the requisition'); return; }
+    r.status = s; this.store.log(s, 'Requisition', r.id); this.store.changed(); this.toast.ok(`${r.id} ${s.toLowerCase()}`);
+  }
+  issueReq(r: Requisition) {
+    if (this.live) { this.run(() => this.api.issueReq(r.id), `${r.id} issued to ${r.dept}. Stock reduced.`, 'Could not issue the requisition'); return; }
+    r.items.forEach(i => { const it = this.store.db.inventory.find(x => x.id === i.itemId); if (it) it.stock = Math.max(0, it.stock - i.qty); }); r.status = 'Issued'; this.store.log('Issued', 'Requisition', r.id); this.store.changed(); this.toast.ok(`${r.id} issued to ${r.dept}. Stock reduced.`);
+  }
+  setPo(p: PurchaseOrder, s: PurchaseOrder['status']) {
+    if (this.live) {
+      const v = (p as PurchaseOrder & { version?: number }).version ?? 0;
+      const ok = s === 'Ordered' ? `${p.id} marked as sent to ${this.store.supplier(p.supplierId)?.name}. Send the order to them yourself.` : `${p.id} ${s.toLowerCase()}`;
+      this.run(() => this.api.orderStatus(p.id, s, v), ok, 'Could not update the order').then(done => { if (done) this.sel.set(null); });
+      return;
+    }
+    p.status = s; if (s === 'Ordered') { p.expected = this.store.day(3); this.toast.ok(`${p.id} emailed to ${this.store.supplier(p.supplierId)?.name} (simulated)`); } else this.toast.ok(`${p.id} ${s.toLowerCase()}`); this.store.log(s, 'Purchase order', p.id); this.store.changed();
+  }
+  receive(p: PurchaseOrder) {
+    if (this.live) {
+      const v = (p as PurchaseOrder & { version?: number }).version ?? 0;
+      const lines = this.grn(p).map(i => ({ itemId: i.itemId, received: i.received == null || (i.received as unknown) === '' ? i.qty : +i.received, batch: i.batch?.trim() || undefined, expiry: i.expiry || undefined }));
+      this.run(() => this.api.receive(p.id, v, lines), `Goods received against ${p.id}. Stock updated.`, 'Could not record the goods receipt');
+      return;
+    }
+    p.items.forEach(i => { if (i.received == null || (i.received as unknown) === '') i.received = i.qty; i.qty = +i.received!; }); this.store.receivePO(p); this.toast.ok(`Goods received against ${p.id}. Stock and batches updated.`);
+  }
   addLine(id: string) {
     if (!id) return; const m = this.store.med(id); const inv = this.store.db.inventory.find(x => x.id === id);
     if (!this.np.items.some(i => i.itemId === id)) this.np.items.push({ itemId: id, name: m ? `${m.brand} ${m.strength}` : inv!.name, qty: m ? m.reorder * 2 : (inv?.reorder || 10) * 2, cost: m ? +(m.price * 0.7).toFixed(2) : inv!.cost });
     setTimeout(() => this.np.pick = '');
   }
-  createPo() { const po: PurchaseOrder = { id: 'PO-' + (4100 + this.pos().length), supplierId: this.np.supplierId, date: this.store.today(), kind: this.np.kind, items: this.np.items.map(i => ({ ...i, qty: +i.qty, cost: +i.cost })), status: 'Requested', requestedBy: 'Meera Rao' }; this.store.db.purchaseOrders.unshift(po); this.store.log('Created', 'Purchase order', po.id); this.store.changed(); this.toast.ok(`${po.id} raised for approval`); this.newPo.set(false); this.np.items = []; this.tab.set('po'); }
+  async createPo() {
+    if (this.live) {
+      const np = this.np;
+      if (await this.run(() => this.api.createOrder({ kind: np.kind, supplierId: np.supplierId, branchId: this.session.branchId(), items: np.items.map(i => ({ itemId: i.itemId, qty: +i.qty, cost: +i.cost })) }), 'Purchase order raised for approval', 'Could not raise the order')) { this.newPo.set(false); this.np.items = []; this.tab.set('po'); }
+      return;
+    }
+    const po: PurchaseOrder = { id: 'PO-' + (4100 + this.pos().length), supplierId: this.np.supplierId, date: this.store.today(), kind: this.np.kind, items: this.np.items.map(i => ({ ...i, qty: +i.qty, cost: +i.cost })), status: 'Requested', requestedBy: 'Meera Rao' }; this.store.db.purchaseOrders.unshift(po); this.store.log('Created', 'Purchase order', po.id); this.store.changed(); this.toast.ok(`${po.id} raised for approval`); this.newPo.set(false); this.np.items = []; this.tab.set('po');
+  }
 }
