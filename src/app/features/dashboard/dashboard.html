@@ -10,7 +10,8 @@
       <div class="row"><button class="btn white" (click)="go(hero()[2])">{{ hero()[1] }}</button>
         @if (kind() === 'admin') { <button class="btn glass" (click)="go('/assistant')"><lucide-icon name="sparkles" [size]="16"></lucide-icon>Ask the AI assistant</button> }</div>
     </div>
-    <figure class="art" aria-hidden="true"><span class="halo"></span><span class="frame"><img src="img/doctor-portrait-sm.webp" alt="" width="360" height="594" decoding="async"></span></figure>
+    <span class="deco" aria-hidden="true"></span>
+    <img class="art" src="img/doctor-cutout-sm.webp" alt="" width="400" height="579" decoding="async" aria-hidden="true">
   </section>
 
   <div class="kpis">
