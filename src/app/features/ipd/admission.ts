@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
@@ -6,6 +6,10 @@ import { ToastService } from '../../core/services/toast.service';
 import { ExportService } from '../../core/services/export.service';
 import { Admission, ClinicalNote, MarEntry } from '../../core/models';
 import { news2 } from '../../core/data/clinical';
+import { SessionService } from '../../core/services/session.service';
+import { LiveSync } from '../../core/api/live-sync';
+import { BillPreview, DepositMode, IpdApi, LiveAdmission } from '../../core/api/ipd-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 type Tab = 'overview' | 'notes' | 'mar' | 'obs' | 'io' | 'bill' | 'discharge';
 
@@ -16,7 +20,7 @@ type Tab = 'overview' | 'notes' | 'mar' | 'obs' | 'io' | 'bill' | 'discharge';
   template: `
   @if (a(); as a) { @let p = store.patient(a.patientId);
   <div class="page">
-    <cf-page-head [title]="p?.name || ''" [crumbs]="['IPD', a.id]" [sub]="store.bed(a.bedId)?.label + ' · ' + store.ward(store.bed(a.bedId)?.wardId)?.name + ' · day ' + los() + ' · ' + store.dname(a.doctorId)">
+    <cf-page-head [title]="p?.name || ''" [crumbs]="['IPD', a.id]" [sub]="bedLabel(a) + ' · ' + wardName(a) + ' · day ' + los() + ' · ' + store.dname(a.doctorId)">
       <a class="btn ghost" routerLink="/ipd">All inpatients</a>
       @if (a.status !== 'Discharged') { <button class="btn" (click)="tab.set('discharge')"><lucide-icon name="log-out" [size]="16"></lucide-icon>Discharge</button> }
     </cf-page-head>
@@ -82,10 +86,37 @@ type Tab = 'overview' | 'notes' | 'mar' | 'obs' | 'io' | 'bill' | 'discharge';
       </div>
     }
     @case ('bill') {
+      @if (live) {
+        <div class="grid">
+          <div class="card c8 stack">
+            <div class="row"><h3 style="font-size:15.5px">{{ a.status === 'Discharged' ? 'Final bill' : 'Running bill (before GST)' }}</h3><span class="spacer"></span>@if (bill(); as b) {@if (b.days) {<span class="muted small">{{ b.days }} {{ b.days === 1 ? 'day' : 'days' }} so far</span>}}</div>
+            @if (live && la()?.invoiceId) { <div class="alert-box ok"><lucide-icon name="circle-check" [size]="16"></lucide-icon>Final invoice {{ la()?.invoiceNumber }} raised at discharge.<span class="spacer"></span><a class="btn ghost sm" [routerLink]="['/billing/invoice', la()?.invoiceId]">Open invoice</a></div> }
+            @if (bill(); as b) { @if (b.lines.length) {
+              <div class="tbl"><table class="t"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead><tbody>
+                @for (l of b.lines; track $index) {<tr><td>{{ l.description }}</td><td class="num">{{ l.qty }}</td><td class="num">{{ l.rate | inr }}</td><td class="num">{{ l.amount | inr }}</td></tr>}
+              </tbody></table></div>
+              <div class="kv"><div><small>Subtotal</small><b>{{ b.subtotal | inr }}</b></div><div><small>Deposit balance</small><b>{{ b.depositBalance | inr }}</b></div><div><small>Estimated due at discharge</small><b>{{ b.estimatedDue | inr }}</b></div></div>
+              <p class="hint">Room charges follow the midnight census. Pharmacy and lab bills raised during the stay are separate invoices. GST is added on the final invoice.</p> } }
+            @if (a.status !== 'Discharged') { <div class="soft stack-s"><b>Add a service to the bill</b>
+              <div class="row"><input class="inp" style="flex:2" [(ngModel)]="ch.description" placeholder="e.g. Nebulisation, dressing, oxygen"><select class="inp" style="flex:1" [(ngModel)]="ch.category"><option value="PROCEDURE">Procedure</option><option value="NURSING">Nursing</option><option value="CONSULTATION">Visit</option><option value="OT">OT</option><option value="OTHER">Other</option></select>
+                <input class="inp" style="flex:1" type="number" min="1" [(ngModel)]="ch.qty" placeholder="Qty"><input class="inp" style="flex:1" type="number" min="0" [(ngModel)]="ch.rate" placeholder="Rate"><button class="btn sm" [disabled]="!ch.description.trim() || !(+ch.rate >= 0) || !(+ch.qty > 0)" (click)="addCharge(a)">Add</button></div></div> }
+            @if (la()?.charges?.length) { <div class="list">@for (c of la()!.charges; track c.id) {<div class="li"><div class="grow"><b>{{ c.description }}</b><span>{{ c.qty }} × {{ c.rate | inr }} · {{ c.by }}</span></div>@if (a.status !== 'Discharged' && canCancelCharge) {<button class="btn ghost sm" (click)="cancelCharge(a, c.id)">Remove</button>}</div>}</div> }
+          </div>
+          <div class="card c4 stack-s">
+            <b>Advance deposits</b>
+            <div class="list">@for (d of la()?.deposits; track d.id) {<div class="li"><div class="grow"><b>{{ d.kind === 'DEPOSIT' ? 'Received' : d.kind === 'REFUND' ? 'Refunded' : 'Adjusted on bill' }} · {{ d.receiptNo }}</b><span>{{ d.at | d:true }} · {{ d.mode }}{{ d.reference ? ' · ' + d.reference : '' }}</span></div><b [style.color]="d.kind === 'DEPOSIT' ? '' : 'var(--mut)'">{{ d.kind === 'DEPOSIT' ? '' : '−' }}{{ d.amount | inr }}</b></div>} @empty {<p class="muted small">No advance received.</p>}</div>
+            <div class="kv"><div><small>Balance</small><b>{{ la()?.depositBalance || 0 | inr }}</b></div></div>
+            @if (a.status !== 'Discharged') { <div class="row"><input class="inp" style="flex:1" type="number" min="1" [(ngModel)]="dep.amount" placeholder="Amount"><select class="inp" style="width:auto" [(ngModel)]="dep.mode"><option value="CASH">Cash</option><option value="UPI">UPI</option><option value="CARD">Card</option><option value="BANK_TRANSFER">Bank</option></select></div>
+              <input class="inp" [(ngModel)]="dep.ref" placeholder="Reference (optional)"><button class="btn sm" [disabled]="!(+dep.amount > 0)" (click)="addDeposit(a)">Record deposit</button> }
+            @else if ((la()?.depositBalance || 0) > 0) { <button class="btn sm" (click)="refund(a)">Refund balance {{ la()?.depositBalance | inr }}</button> }
+          </div>
+        </div>
+      } @else {
       <div class="card stack">
-        <div class="kv"><div><small>Room ({{ los() }} days × {{ store.ward(store.bed(a.bedId)?.wardId)?.rate | inr }})</small><b>{{ los() * (store.ward(store.bed(a.bedId)?.wardId)?.rate || 0) | inr }}</b></div><div><small>Nursing and visits</small><b>{{ los() * 1400 | inr }}</b></div><div><small>Advance paid</small><b>{{ a.advance | inr }}</b></div><div><small>Running estimate</small><b>{{ running() | inr }}</b></div></div>
+        <div class="kv"><div><small>Room ({{ los() }} days × {{ rate(a) | inr }})</small><b>{{ los() * rate(a) | inr }}</b></div><div><small>Nursing and visits</small><b>{{ los() * 1400 | inr }}</b></div><div><small>Advance paid</small><b>{{ a.advance | inr }}</b></div><div><small>Running estimate</small><b>{{ running() | inr }}</b></div></div>
         <div class="list">@for (i of invoices(); track i.id) {<div class="li"><div class="grow"><b>{{ i.id }}</b><span>{{ i.date | d }} · {{ i.items.length }} items</span></div><b>{{ store.invoiceTotals(i).total | inr }}</b><cf-status [s]="i.status"></cf-status><a class="btn ghost sm" [routerLink]="['/billing/invoice', i.id]">Open</a></div>}</div>
       </div>
+      }
     }
     @case ('discharge') {
       <div class="grid">
@@ -109,7 +140,32 @@ type Tab = 'overview' | 'notes' | 'mar' | 'obs' | 'io' | 'bill' | 'discharge';
 })
 export class AdmissionPage {
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router); printer = inject(ExportService);
+  private session = inject(SessionService); private sync = inject(LiveSync); private api = inject(IpdApi); live = this.session.live;
   id = input<string>('');
+  bill = signal<BillPreview | null>(null);
+  ch = { description: '', category: 'PROCEDURE', qty: 1, rate: 0 }; dep = { amount: 0, mode: 'CASH' as DepositMode, ref: '' };
+  canCancelCharge = this.session.is(['super-admin', 'admin', 'billing']);
+  constructor() {
+    if (this.live) {
+      effect(() => { const id = this.id(); if (id) untracked(() => this.fetch(id)); });
+      effect(() => { if (this.tab() === 'bill' && this.id()) untracked(() => this.loadBill()); });
+    }
+  }
+  private async fetch(id: string) {
+    try { this.sync.putAdmission(await this.api.admission(id)); } catch (e) { this.toast.err(apiMessage(e, 'Could not load the admission')); }
+  }
+  private async loadBill() { try { this.bill.set(await this.api.bill(this.id())); } catch { this.bill.set(null); } }
+  /** The server copy (live mode) with names and money. */
+  la = computed(() => this.live ? this.a() as LiveAdmission | undefined : undefined);
+  bedLabel(a: Admission) { return (a as LiveAdmission).bedLabel ?? this.store.bed(a.bedId)?.label; }
+  wardName(a: Admission) { return (a as LiveAdmission).wardName ?? this.store.ward(this.store.bed(a.bedId)?.wardId)?.name; }
+  rate(a: Admission) { return this.store.ward((a as LiveAdmission).wardId ?? this.store.bed(a.bedId)?.wardId)?.rate || 0; }
+  /** Live mode: runs the call and refreshes the bill when it is on screen. */
+  private async act(call: () => Promise<LiveAdmission>, ok: string | null) {
+    const r = await this.sync.ipdAction(call, ok ? () => ok : null);
+    if (r && this.tab() === 'bill') void this.loadBill();
+    return r;
+  }
   tabs: { id: Tab; label: string }[] = [{ id: 'overview', label: 'Overview' }, { id: 'notes', label: 'Notes' }, { id: 'mar', label: 'Medications (MAR)' }, { id: 'obs', label: 'Observations' }, { id: 'io', label: 'Intake / output' }, { id: 'bill', label: 'Billing' }, { id: 'discharge', label: 'Discharge' }];
   noteTypes: ClinicalNote['type'][] = ['Progress', 'Doctor round', 'Nursing'];
   checks = ['Final medicines reconciled', 'Pending reports reviewed', 'Follow-up appointment booked', 'Patient and family counselled', 'Bills cleared or approved'];
@@ -129,22 +185,47 @@ export class AdmissionPage {
   previewNews() { return news2(this.ob); }
   ioSum(k: string) { return (this.a()?.io || []).filter(e => e.kind === k).reduce((t, e) => t + e.ml, 0); }
 
-  addCp(a: Admission) { if (!this.cp.trim()) return; a.carePlan.push(this.cp.trim()); this.cp = ''; this.store.changed(); }
-  addNote(a: Admission) { a.notes.unshift({ id: this.store.uid('N'), date: this.store.nowStamp(), author: this.nType === 'Nursing' ? 'Nurse Rekha Pillai' : this.store.dname(a.doctorId), type: this.nType, text: this.nText.trim() }); this.nText = ''; this.store.log('Created', 'Clinical note', `${a.id} ${this.nType}`); this.store.changed(); this.toast.ok('Note saved'); }
-  mar(m: MarEntry, s: MarEntry['status']) { m.status = s; m.by = 'Nurse Rekha Pillai'; this.store.log('Updated', 'MAR', `${m.med} ${s}`); this.store.changed(); this.toast.ok(`${m.med} marked ${s.toLowerCase()}`); }
-  addMar(a: Admission) { a.mar.push({ id: this.store.uid('MA'), med: this.nm.med, dose: this.nm.dose || '—', route: this.nm.route, time: this.nm.time, date: this.store.today(), status: 'Due' }); a.mar.sort((x, y) => x.time.localeCompare(y.time)); this.nm = { med: '', dose: '', route: 'PO', time: '14:00' }; this.store.changed(); this.toast.ok('Medication order added to the MAR'); }
+  addCp(a: Admission) { if (!this.cp.trim()) return; if (this.live) { const t = this.cp.trim(); void this.act(() => this.api.carePlan(a.id, t), 'Added to the care plan').then(r => { if (r) this.cp = ''; }); return; } a.carePlan.push(this.cp.trim()); this.cp = ''; this.store.changed(); }
+  addNote(a: Admission) { if (this.live) { const t = this.nText.trim(); void this.act(() => this.api.note(a.id, this.nType, t), 'Note saved').then(r => { if (r) this.nText = ''; }); return; } a.notes.unshift({ id: this.store.uid('N'), date: this.store.nowStamp(), author: this.nType === 'Nursing' ? 'Nurse Rekha Pillai' : this.store.dname(a.doctorId), type: this.nType, text: this.nText.trim() }); this.nText = ''; this.store.log('Created', 'Clinical note', `${a.id} ${this.nType}`); this.store.changed(); this.toast.ok('Note saved'); }
+  mar(m: MarEntry, s: MarEntry['status']) {
+    if (this.live) {
+      const note = s === 'Given' ? undefined : prompt(`Reason for ${s.toLowerCase()} dose of ${m.med}`)?.trim();
+      if (s !== 'Given' && !note) return;
+      void this.act(() => this.api.dose(this.id(), m.id, s, note), `${m.med} marked ${s.toLowerCase()}`); return;
+    }
+    m.status = s; m.by = 'Nurse Rekha Pillai'; this.store.log('Updated', 'MAR', `${m.med} ${s}`); this.store.changed(); this.toast.ok(`${m.med} marked ${s.toLowerCase()}`); }
+  addMar(a: Admission) {
+    if (this.live) { const n = { ...this.nm, dose: this.nm.dose || '—' }; void this.act(() => this.api.addMar(a.id, n), 'Medication order added to the MAR').then(r => { if (r) this.nm = { med: '', dose: '', route: 'PO', time: '14:00' }; }); return; }
+    a.mar.push({ id: this.store.uid('MA'), med: this.nm.med, dose: this.nm.dose || '—', route: this.nm.route, time: this.nm.time, date: this.store.today(), status: 'Due' }); a.mar.sort((x, y) => x.time.localeCompare(y.time)); this.nm = { med: '', dose: '', route: 'PO', time: '14:00' }; this.store.changed(); this.toast.ok('Medication order added to the MAR'); }
   addObs(a: Admission) {
+    if (this.live) {
+      const o = { bp: this.ob.bp, hr: +this.ob.hr, temp: +this.ob.temp, spo2: +this.ob.spo2, rr: +this.ob.rr, pain: +this.ob.pain };
+      void this.act(() => this.api.obs(a.id, o), null).then(r => { const n = r?.obs.at(-1)?.news; if (n == null) return; if (n >= 5) this.toast.warn(`NEWS2 ${n}. Inform the doctor on duty now; the escalation is in the audit trail.`); else this.toast.ok(`Observations saved. NEWS2 ${n}.`); });
+      return;
+    }
     const n = news2(this.ob); a.obs.push({ time: this.store.nowTime(), ...this.ob, news: n }); this.store.changed();
     if (n >= 5) { this.store.raiseAlert({ priority: 'High', category: 'Clinical', dept: this.store.ward(this.store.bed(a.bedId)?.wardId)?.name || 'Ward', title: `NEWS2 ${n} for ${this.store.pname(a.patientId)}`, detail: 'Escalate to the doctor on duty (demo early-warning rule).', assignee: this.store.dname(a.doctorId), link: '/ipd/admission/' + a.id }); this.toast.warn(`NEWS2 ${n}. Escalation alert raised (demo).`); }
     else this.toast.ok(`Observations saved. NEWS2 ${n}.`);
   }
-  addIo(a: Admission) { a.io.push({ id: this.store.uid('IO'), time: this.store.nowTime(), kind: this.ioN.kind, type: this.ioN.type || (this.ioN.kind === 'Intake' ? 'Oral' : 'Urine'), ml: +this.ioN.ml }); this.ioN.ml = 0; this.ioN.type = ''; this.store.changed(); }
+  addIo(a: Admission) { if (this.live) { const e = { kind: this.ioN.kind, type: this.ioN.type, ml: +this.ioN.ml }; void this.act(() => this.api.io(a.id, e), 'Intake/output recorded').then(r => { if (r) { this.ioN.ml = 0; this.ioN.type = ''; } }); return; } a.io.push({ id: this.store.uid('IO'), time: this.store.nowTime(), kind: this.ioN.kind, type: this.ioN.type || (this.ioN.kind === 'Intake' ? 'Oral' : 'Urine'), ml: +this.ioN.ml }); this.ioN.ml = 0; this.ioN.type = ''; this.store.changed(); }
   toggle(c: string) { this.done.update(d => d.includes(c) ? d.filter(x => x !== c) : [...d, c]); }
   draft(a: Admission) {
     const p = this.store.patient(a.patientId)!; const last = this.latest();
     this.summary = `${p.name}, ${this.store.age(p.dob)} y ${p.gender.toLowerCase()}, was admitted on ${a.admittedOn.slice(0, 10)} under ${this.store.dname(a.doctorId)} with ${a.reason.toLowerCase()}.\n\nDiagnosis: ${a.diagnosis}.\n\nCourse in hospital: ${a.notes.slice(0, 3).reverse().map(n => n.text).join(' ')}\n\nCondition at discharge: stable.${last ? ` Last vitals BP ${last.bp}, pulse ${last.hr}, SpO2 ${last.spo2}%.` : ''}\n\nMedicines on discharge: [doctor to confirm]\n\nFollow-up: review in OPD after 7 days, earlier if fever, breathlessness or worsening symptoms.`;
     this.drafted.set(true); this.store.log('Generated', 'AI draft', `Discharge summary draft for ${a.id}`, 'Sensitive'); this.toast.info('Draft created. Review every line before signing.');
   }
-  plan(a: Admission) { a.status = 'Discharge planned'; this.store.changed(); this.toast.ok('Marked as discharge planned. Billing and pharmacy notified (simulated).'); }
-  discharge(a: Admission) { this.store.discharge(a, this.summary); this.toast.ok(`${this.store.pname(a.patientId)} discharged. Final bill created and bed sent for cleaning.`); }
+  plan(a: Admission) { if (this.live) { void this.act(() => this.api.planDischarge(a.id), 'Marked as discharge planned'); return; } a.status = 'Discharge planned'; this.store.changed(); this.toast.ok('Marked as discharge planned. Billing and pharmacy notified (simulated).'); }
+  discharge(a: Admission) {
+    if (this.live) { void this.sync.ipdAction(() => this.api.discharge(a.id, this.summary.trim(), this.done()), x => `${x.patientName} discharged. Final bill ${x.invoiceNumber} raised${x.deposits.some(d => d.kind === 'ADJUSTED') ? ' and the advance adjusted' : ''}. Bed sent for cleaning.`, true); return; }
+    this.store.discharge(a, this.summary); this.toast.ok(`${this.store.pname(a.patientId)} discharged. Final bill created and bed sent for cleaning.`); }
+  addCharge(a: Admission) {
+    const c = { description: this.ch.description.trim(), category: this.ch.category, qty: +this.ch.qty, rate: +this.ch.rate };
+    void this.act(() => this.api.charge(a.id, c), `${c.description} added to the bill`).then(r => { if (r) this.ch = { description: '', category: 'PROCEDURE', qty: 1, rate: 0 }; });
+  }
+  cancelCharge(a: Admission, chargeId: string) { void this.act(() => this.api.cancelCharge(a.id, chargeId), 'Charge removed'); }
+  addDeposit(a: Admission) {
+    const amt = +this.dep.amount;
+    void this.act(() => this.api.deposit(a.id, amt, this.dep.mode, this.dep.ref.trim() || undefined), `Deposit of ₹${amt} recorded`).then(r => { if (r) this.dep = { amount: 0, mode: 'CASH', ref: '' }; });
+  }
+  refund(a: Admission) { void this.act(() => this.api.refundDeposit(a.id, 'CASH'), 'Deposit balance refunded'); }
 }

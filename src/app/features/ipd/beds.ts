@@ -1,9 +1,13 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Bed, BedStatus } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { LiveSync } from '../../core/api/live-sync';
+import { IpdApi } from '../../core/api/ipd-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -24,7 +28,7 @@ import { Bed, BedStatus } from '../../core/models';
       <span class="spacer"></span>
       <span class="legend"><span><i style="background:var(--green)"></i>Available</span><span><i style="background:var(--pink)"></i>Occupied</span><span><i style="background:var(--blue)"></i>Reserved</span><span><i style="background:var(--amber)"></i>Cleaning</span><span><i style="background:var(--mut)"></i>Maintenance</span></span>
     </div></div>
-    @for (w of store.db.wards; track w.id) {
+    @for (w of wards(); track w.id) {
       <section class="card ward">
         <div class="card-h" style="margin:0"><h3>{{ w.name }}</h3><span class="muted small">{{ w.type }} · {{ w.floor }} · {{ w.rate | inr }}/day</span></div>
         <div class="beds">
@@ -63,6 +67,11 @@ import { Bed, BedStatus } from '../../core/models';
 })
 export class BedsPage {
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
+  private session = inject(SessionService); private sync = inject(LiveSync); private api = inject(IpdApi); live = this.session.live;
+  constructor() {
+    if (this.live) effect(() => { const b = this.session.branchId(); untracked(() => this.sync.loadIpd(b).catch(() => this.toast.err('Could not load beds from the server'))); });
+  }
+  wards = computed(() => { this.store.rev(); return this.store.db.wards; });
   filters = ['All', 'Available', 'Occupied', 'Reserved', 'Cleaning', 'Maintenance']; statuses: BedStatus[] = ['Available', 'Reserved', 'Cleaning', 'Maintenance'];
   f = signal('All'); sel = signal<Bed | null>(null); tr = signal(false); target = '';
   private beds = computed(() => { this.store.rev(); return this.store.db.beds; });
@@ -70,6 +79,18 @@ export class BedsPage {
   count(s: string) { return s === 'All' ? this.beds().length : this.beds().filter(b => b.status === s).length; }
   adm(b: Bed) { return this.store.db.admissions.find(a => a.id === b.admissionId); }
   freeBeds = computed(() => this.beds().filter(b => b.status === 'Available'));
-  setStatus(b: Bed, s: BedStatus) { this.store.setBed(b, s); this.store.log('Updated', 'Bed', `${b.label} → ${s}`); this.toast.ok(`${b.label} marked ${s.toLowerCase()}`); }
-  transfer(admId: string) { const a = this.store.db.admissions.find(x => x.id === admId)!; const nb = this.store.bed(this.target)!; this.store.transferBed(a, this.target); this.toast.ok(`Moved to ${nb.label}. Old bed sent for cleaning.`); this.sel.set(nb); this.tr.set(false); this.target = ''; }
+  async setStatus(b: Bed, s: BedStatus) {
+    if (this.live) {
+      try { const nb = await this.api.setBedStatus(b.id, s); await this.sync.reloadBeds(); this.sel.set(this.store.bed(nb.id) ?? null); this.toast.ok(`${nb.label} marked ${s.toLowerCase()}`); }
+      catch (e) { this.toast.err(apiMessage(e, 'Could not change the bed')); }
+      return;
+    }
+    this.store.setBed(b, s); this.store.log('Updated', 'Bed', `${b.label} → ${s}`); this.toast.ok(`${b.label} marked ${s.toLowerCase()}`); }
+  async transfer(admId: string) {
+    if (this.live) {
+      const a = await this.sync.ipdAction(() => this.api.transfer(admId, this.target), x => `Moved to ${x.bedLabel}. Old bed sent for cleaning.`, true);
+      if (a) { this.sel.set(this.store.bed(a.bedId) ?? null); this.tr.set(false); this.target = ''; }
+      return;
+    }
+    const a = this.store.db.admissions.find(x => x.id === admId)!; const nb = this.store.bed(this.target)!; this.store.transferBed(a, this.target); this.toast.ok(`Moved to ${nb.label}. Old bed sent for cleaning.`); this.sel.set(nb); this.tr.set(false); this.target = ''; }
 }
