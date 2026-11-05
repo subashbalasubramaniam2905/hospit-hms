@@ -41,7 +41,8 @@ export class StoreService {
     d.patients = []; d.appointments = []; d.queue = []; d.consultations = []; d.prescriptions = []; d.labOrders = []; d.imaging = [];
     d.invoices = []; d.claims = []; d.admissions = []; d.surgeries = []; d.erCases = []; d.notifications = []; d.followUps = [];
     d.feedback = []; d.alerts = []; d.audit = []; d.inbox = [];
-    for (const b of d.beds) if (b.admissionId) { b.admissionId = undefined; b.status = 'Available'; }
+    // Wards and beds come from the server per branch (LiveSync.loadIpd).
+    d.wards = []; d.beds = [];
   }
 
   /** Live mode: loads the most recent patients this user may see. Older ones are fetched on search. */
@@ -80,7 +81,7 @@ export class StoreService {
     this.changed(); return rx;
   }
   /** Live mode: forgets everything loaded for the previous user (called on sign-out and session expiry). */
-  clearLivePatients() { if (LIVE) { this.db = buildSeed(); this.dropDemoPatientData(); this.extraNames.clear(); this.patientsReady.set(false); this.changed(); } }
+  clearLivePatients() { if (LIVE) { this.db = buildSeed(); this.dropDemoPatientData(); this.extraNames.clear(); this.extraDoctorNames.clear(); this.patientsReady.set(false); this.changed(); } }
 
   private load(): SeedData {
     try {
@@ -125,7 +126,9 @@ export class StoreService {
   /** Names of patients that are known from the server but not held in this store (live mode). */
   readonly extraNames = new Map<string, string>();
   pname(id?: string) { return this.patient(id)?.name ?? (id && this.extraNames.get(id)) ?? 'Unknown patient'; }
-  dname(id?: string) { return this.doctor(id)?.name ?? '—'; }
+  /** Live mode: doctor names the server sent with records, for doctors missing from the local directory. */
+  readonly extraDoctorNames = new Map<string, string>();
+  dname(id?: string) { return this.doctor(id)?.name ?? (id && this.extraDoctorNames.get(id)) ?? '—'; }
 
   age(dob: string) {
     const d = new Date(dob), n = new Date();

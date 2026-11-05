@@ -1,9 +1,13 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Admission } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { LiveSync } from '../../core/api/live-sync';
+import { DepositMode, DirectoryDoctor, IpdApi } from '../../core/api/ipd-api';
+import { apiMessage } from '../../core/api/auth.service';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -22,7 +26,7 @@ import { Admission } from '../../core/models';
             @if (tried() && !pid()) { <span class="errmsg">Choose a patient.</span> }</div>
           <div class="form-grid">
             <div class="field"><label>Admission type</label><select class="inp" [(ngModel)]="type"><option>Planned</option><option>Emergency</option><option>Day care</option><option>Maternity</option></select></div>
-            <div class="field"><label>Consultant <span class="req">*</span></label><select class="inp" [(ngModel)]="doctorId">@for (d of store.db.doctors; track d.id) {<option [value]="d.id">{{ d.name }} · {{ store.dept(d.deptId)?.name }}</option>}</select></div>
+            <div class="field"><label>Consultant <span class="req">*</span></label><select class="inp" [(ngModel)]="doctorId">@for (d of doctors(); track d.id) {<option [value]="d.id">{{ d.name }} · {{ store.dept(d.deptId)?.name }}</option>}</select></div>
             <div class="field span2"><label>Reason for admission <span class="req">*</span></label><input class="inp" [class.err]="tried() && !reason" [(ngModel)]="reason" placeholder="e.g. Community-acquired pneumonia needing IV antibiotics"></div>
             <div class="field"><label>Provisional diagnosis</label><input class="inp" [(ngModel)]="diagnosis"></div>
             <div class="field"><label>Expected discharge</label><input class="inp" type="date" [min]="store.today()" [(ngModel)]="expected"></div>
@@ -38,23 +42,43 @@ import { Admission } from '../../core/models';
         <h3 style="font-size:15.5px">Advance and consent</h3>
         <div class="kv"><div><small>Bed</small><b>{{ store.bed(bedId())?.label || '—' }}</b></div><div><small>Estimate ({{ days() }} days)</small><b>{{ estimate() | inr }}</b></div></div>
         <div class="field"><label>Advance collected</label><input class="inp" type="number" [(ngModel)]="advance"><span class="hint">Suggested {{ estimate() * 0.3 | inr }} (30% of estimate)</span></div>
+        @if (live && +advance > 0) { <div class="form-grid"><div class="field"><label>Paid by</label><select class="inp" [(ngModel)]="advanceMode"><option value="CASH">Cash</option><option value="UPI">UPI</option><option value="CARD">Card</option><option value="BANK_TRANSFER">Bank transfer</option></select></div>
+          <div class="field"><label>Reference</label><input class="inp" [(ngModel)]="advanceRef" placeholder="UPI or card ref"></div></div> }
         @if (patient()?.insurance) { <mat-slide-toggle [(ngModel)]="preauth">Raise cashless pre-authorisation</mat-slide-toggle> }
         <mat-checkbox [(ngModel)]="consent">General consent for admission signed</mat-checkbox>
         @if (tried() && !consent) { <span class="errmsg">Consent is required.</span> }
-        <button class="btn" (click)="admit()"><lucide-icon name="bed" [size]="16"></lucide-icon>Admit</button>
+        <button class="btn" [disabled]="busy()" (click)="admit()"><lucide-icon name="bed" [size]="16"></lucide-icon>Admit</button>
       </div></div>
     </div>
   </div>`
 })
 export class AdmitPage {
   store = inject(StoreService); toast = inject(ToastService); router = inject(Router);
-  pid = signal(''); pq = signal(''); ward = signal('W1'); bedId = signal(''); tried = signal(false);
+  private session = inject(SessionService); private sync = inject(LiveSync); private api = inject(IpdApi); live = this.session.live;
+  pid = signal(''); pq = signal(''); ward = signal('W1'); bedId = signal(''); tried = signal(false); busy = signal(false);
+  liveDoctors = signal<DirectoryDoctor[]>([]);
+  doctors = computed(() => this.live ? this.liveDoctors() : this.store.db.doctors);
+  advanceMode: DepositMode = 'CASH'; advanceRef = ''; private erCase = ''; private wantBed = '';
   type: Admission['type'] = 'Planned'; doctorId = 'D01'; reason = ''; diagnosis = ''; expected = this.store.day(3); advance = 10000; preauth = false; consent = false;
   constructor() {
     const q = inject(ActivatedRoute).snapshot.queryParamMap;
     if (q.get('patient')) this.pick(q.get('patient')!);
     const b = this.store.bed(q.get('bed') || ''); if (b) { this.ward.set(b.wardId); this.bedId.set(b.id); }
     if (q.get('type')) this.type = q.get('type') as Admission['type'];
+    this.erCase = q.get('erCase') || '';
+    if (this.live) {
+      this.wantBed = q.get('bed') || '';
+      if (q.get('patient') && !this.store.patient(q.get('patient')!)) this.store.searchPatients(q.get('patient')!).then(() => this.pick(q.get('patient')!)).catch(() => undefined);
+      this.api.doctors().then(d => { this.liveDoctors.set(d); if (!d.some(x => x.id === this.doctorId)) this.doctorId = d[0]?.id ?? ''; }).catch(() => undefined);
+      effect(() => { const br = this.session.branchId(); untracked(() => this.sync.loadIpd(br).then(() => this.afterLoad()).catch(() => this.toast.err('Could not load beds from the server'))); });
+      effect(() => { const t = this.pq(); if (t.trim().length > 1) untracked(() => this.store.searchPatients(t).catch(() => undefined)); });
+    }
+  }
+  /** Live mode: picks the ward of the requested bed, or the first ward, once the branch's beds have loaded. */
+  private afterLoad() {
+    const b = this.store.bed(this.wantBed);
+    if (b) { this.ward.set(b.wardId); this.bedId.set(b.id); this.wantBed = ''; return; }
+    if (!this.store.ward(this.ward())) { this.ward.set(this.store.db.wards[0]?.id ?? ''); this.bedId.set(''); }
   }
   patient = computed(() => this.store.patient(this.pid()));
   matches = computed(() => { const q = this.pq().toLowerCase(); return this.store.db.patients.filter(p => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)).slice(0, 6); });
@@ -64,12 +88,28 @@ export class AdmitPage {
   pick(id: string) { this.pid.set(id); this.pq.set(''); const p = this.store.patient(id); if (p) { this.doctorId = p.primaryDoctorId; this.preauth = !!p.insurance; } }
   admit() {
     this.tried.set(true);
-    if (!this.pid() || !this.reason.trim() || !this.bedId() || !this.consent) { this.toast.err('Fill in the highlighted fields'); return; }
+    if (!this.pid() || !this.reason.trim() || !this.bedId() || !this.consent || !this.doctorId) { this.toast.err('Fill in the highlighted fields'); return; }
     if (this.store.admissionFor(this.pid())) { this.toast.err('This patient is already admitted'); return; }
+    if (this.live) { void this.admitLive(); return; }
     const d = this.store.doctor(this.doctorId)!; const p = this.patient()!;
     const a = this.store.admit({ patientId: p.id, doctorId: d.id, deptId: d.deptId, bedId: this.bedId(), admittedOn: this.store.nowStamp(), reason: this.reason, diagnosis: this.diagnosis || this.reason, type: this.type, expectedDischarge: this.expected, advance: +this.advance || 0 });
     if (this.preauth && p.insurance) this.store.db.claims.unshift({ id: 'CLM-' + (3200 + this.store.db.claims.length), patientId: p.id, admissionId: a.id, providerId: p.insurance.providerId, policyNo: p.insurance.policyNo, claimed: this.estimate(), approved: 0, copay: 10, status: 'Draft', type: 'Pre-authorisation', created: this.store.today(), docs: ['Pre-auth form', 'ID proof'], history: [{ date: this.store.today(), status: 'Draft', note: 'Created at admission' }] });
     this.store.changed(); this.toast.ok(`${p.name} admitted to ${this.store.bed(this.bedId())?.label}${this.preauth ? '. Pre-auth draft created.' : ''}`);
     this.router.navigate(['/ipd/admission', a.id]);
+  }
+  private async admitLive() {
+    const p = this.patient()!;
+    this.busy.set(true);
+    try {
+      const r = await this.api.admit({ patientId: p.id, doctorId: this.doctorId, bedId: this.bedId(), type: this.type, reason: this.reason.trim(), diagnosis: this.diagnosis.trim() || undefined,
+        expectedDischarge: this.expected, advance: +this.advance || 0, advanceMode: this.advanceMode, advanceReference: this.advanceRef.trim() || undefined, consent: this.consent, preauth: this.preauth, erCaseId: this.erCase || undefined });
+      const a = this.sync.putAdmission(r.admission);
+      await this.sync.reloadBeds().catch(() => undefined);
+      if (this.erCase) await this.api.erAdmitted(this.erCase, a.id).catch(() => this.toast.warn('Admitted, but the emergency case could not be closed. Update it on the emergency board.'));
+      this.toast.ok(`${p.name} admitted to ${a.bedLabel}.${r.claimNumber ? ` Pre-authorisation ${r.claimNumber} drafted.` : ''}`);
+      if (r.warning) this.toast.warn(r.warning);
+      this.router.navigate(['/ipd/admission', a.id]);
+    } catch (e) { this.toast.err(apiMessage(e, 'Could not admit the patient')); await this.sync.reloadBeds().catch(() => undefined); }
+    finally { this.busy.set(false); }
   }
 }

@@ -1,8 +1,11 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { Admission } from '../../core/models';
+import { SessionService } from '../../core/services/session.service';
+import { ToastService } from '../../core/services/toast.service';
+import { LiveSync } from '../../core/api/live-sync';
 
 @Component({
   standalone: true, imports: [SHARED],
@@ -40,7 +43,10 @@ import { Admission } from '../../core/models';
   </div>`
 })
 export class IpdPage {
-  store = inject(StoreService); router = inject(Router);
+  store = inject(StoreService); router = inject(Router); private session = inject(SessionService); private sync = inject(LiveSync); private toast = inject(ToastService);
+  constructor() {
+    if (this.session.live) effect(() => { const b = this.session.branchId(); untracked(() => this.sync.loadIpd(b).catch(() => this.toast.err('Could not load inpatients from the server'))); });
+  }
   cols = [
     { key: 'patient', label: 'Patient', value: (a: Admission) => this.store.pname(a.patientId) }, { key: 'bed', label: 'Bed', value: (a: Admission) => this.store.bed(a.bedId)?.label },
     { key: 'diagnosis', label: 'Diagnosis' }, { key: 'doctor', label: 'Consultant', value: (a: Admission) => this.store.dname(a.doctorId) }, { key: 'type', label: 'Type' },
@@ -48,7 +54,7 @@ export class IpdPage {
   ];
   current = computed(() => { this.store.rev(); return this.store.db.admissions.filter(a => a.status !== 'Discharged'); });
   admittedToday = computed(() => this.current().filter(a => a.admittedOn.startsWith(this.store.today())).length);
-  occ = computed(() => { this.store.rev(); const b = this.store.db.beds; return Math.round(b.filter(x => x.status === 'Occupied').length / b.length * 100); });
+  occ = computed(() => { this.store.rev(); const b = this.store.db.beds; return b.length ? Math.round(b.filter(x => x.status === 'Occupied').length / b.length * 100) : 0; });
   free = computed(() => { this.store.rev(); return this.store.db.beds.filter(x => x.status === 'Available').length; });
   planned = computed(() => this.current().filter(a => a.status === 'Discharge planned' || a.expectedDischarge <= this.store.day(1)));
   sick = computed(() => this.current().filter(a => (this.news(a) ?? 0) >= 5));

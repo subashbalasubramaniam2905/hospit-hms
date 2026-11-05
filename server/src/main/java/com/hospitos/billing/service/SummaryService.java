@@ -35,7 +35,8 @@ public class SummaryService {
             "and p.received_at >= :s and p.received_at < :e and " + scope + " group by p.mode order by 2 desc")
         .param("s", start).param("e", end).param("br", br)
         .query(rs -> { byMode.put(rs.getString(1), rs.getBigDecimal(2)); });
-    BigDecimal collected = byMode.entrySet().stream().filter(e -> !e.getKey().equals("INSURANCE"))
+    // Insurer settlements and advance deposits adjusted on a bill are not money taken at the counter today.
+    BigDecimal collected = byMode.entrySet().stream().filter(e -> !e.getKey().equals("INSURANCE") && !e.getKey().equals("ADVANCE"))
         .map(Map.Entry::getValue).reduce(BigDecimal.ZERO, BigDecimal::add);
 
     var week = new LinkedHashMap<LocalDate, Map<String, BigDecimal>>();

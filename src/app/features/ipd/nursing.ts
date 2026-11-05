@@ -1,9 +1,12 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Admission, MarEntry, QueueEntry } from '../../core/models';
 import { news2 } from '../../core/data/clinical';
+import { SessionService } from '../../core/services/session.service';
+import { LiveSync } from '../../core/api/live-sync';
+import { IpdApi } from '../../core/api/ipd-api';
 
 type Tab = 'ward' | 'triage' | 'handover';
 
@@ -78,6 +81,10 @@ type Tab = 'ward' | 'triage' | 'handover';
 })
 export class NursingPage {
   store = inject(StoreService); toast = inject(ToastService);
+  private session = inject(SessionService); private sync = inject(LiveSync); private api = inject(IpdApi); live = this.session.live;
+  constructor() {
+    if (this.live) effect(() => { const b = this.session.branchId(); untracked(() => this.sync.loadIpd(b).catch(() => this.toast.err('Could not load ward patients from the server'))); });
+  }
   tab = signal<Tab>('ward'); ward = signal(''); sel = signal<QueueEntry | null>(null);
   v = { bp: '124/80', hr: 82, temp: 98.4, spo2: 98, rr: 16, weight: 68, cc: '', prio: false };
   hAdm = ''; h = { s: '', b: '', a: '', r: '' };
@@ -88,7 +95,9 @@ export class NursingPage {
   handovers = computed(() => { this.store.rev(); return this.patients().flatMap(a => a.notes.filter(n => n.type === 'Handover').map(n => ({ ...n, who: this.store.pname(a.patientId) }))).sort((x, y) => y.date.localeCompare(x.date)).slice(0, 6); });
   score() { return news2(this.v); }
   dueFor(a: Admission) { return a.mar.filter(m => m.status === 'Due'); }
-  give(m: MarEntry) { m.status = 'Given'; m.by = 'Nurse Rekha Pillai'; this.store.log('Updated', 'MAR', `${m.med} given`); this.store.changed(); this.toast.ok(`${m.med} marked as given`); }
+  give(m: MarEntry) {
+    if (this.live) { const a = this.store.db.admissions.find(x => x.mar.includes(m)); if (a) void this.sync.ipdAction(() => this.api.dose(a.id, m.id, 'Given'), () => `${m.med} marked as given`); return; }
+    m.status = 'Given'; m.by = 'Nurse Rekha Pillai'; this.store.log('Updated', 'MAR', `${m.med} given`); this.store.changed(); this.toast.ok(`${m.med} marked as given`); }
   pick(q: QueueEntry) { this.sel.set(q); this.v = { bp: '124/80', hr: 82, temp: 98.4, spo2: 98, rr: 16, weight: 68, cc: '', prio: q.priority }; }
   sendIn(q: QueueEntry) {
     const p = this.store.patient(q.patientId)!; const c = this.store.draftFor(p.id, q.doctorId, q.appointmentId);
@@ -100,5 +109,7 @@ export class NursingPage {
     this.h = { s: `${this.store.pname(a.patientId)} in ${this.store.bed(a.bedId)?.label}, day ${Math.max(1, Math.round((Date.now() - new Date(a.admittedOn.slice(0, 10)).getTime()) / 864e5))}.`, b: `${a.diagnosis}. Admitted for ${a.reason.toLowerCase()}.`, a: o ? `Last obs ${o.time}: BP ${o.bp}, HR ${o.hr}, SpO2 ${o.spo2}%, NEWS2 ${o.news}. Pain ${o.pain}/10.` : 'No observations recorded.', r: `${a.mar.filter(m => m.status === 'Due').length} medicines due. Continue care plan: ${a.carePlan.join('; ')}.` };
     this.toast.info('Prefilled from the record. Check and edit before saving.');
   }
-  saveHandover() { const a = this.store.db.admissions.find(x => x.id === this.hAdm)!; a.notes.unshift({ id: this.store.uid('N'), date: this.store.nowStamp(), author: 'Nurse Rekha Pillai', type: 'Handover', text: `S: ${this.h.s}\nB: ${this.h.b}\nA: ${this.h.a}\nR: ${this.h.r}` }); this.store.changed(); this.toast.ok('Handover note saved to the patient record'); this.h = { s: '', b: '', a: '', r: '' }; }
+  saveHandover() {
+    if (this.live) { const text = `S: ${this.h.s}\nB: ${this.h.b}\nA: ${this.h.a}\nR: ${this.h.r}`; void this.sync.ipdAction(() => this.api.note(this.hAdm, 'Handover', text), () => 'Handover note saved to the patient record').then(r => { if (r) this.h = { s: '', b: '', a: '', r: '' }; }); return; }
+    const a = this.store.db.admissions.find(x => x.id === this.hAdm)!; a.notes.unshift({ id: this.store.uid('N'), date: this.store.nowStamp(), author: 'Nurse Rekha Pillai', type: 'Handover', text: `S: ${this.h.s}\nB: ${this.h.b}\nA: ${this.h.a}\nR: ${this.h.r}` }); this.store.changed(); this.toast.ok('Handover note saved to the patient record'); this.h = { s: '', b: '', a: '', r: '' }; }
 }
