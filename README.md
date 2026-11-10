@@ -25,13 +25,15 @@ npm run build:demo   # output in dist/hospit-hms/browser
 
 ## GitHub Pages
 
-Every push to `main` builds the prototype and publishes it with `.github/workflows/pages.yml`. One-time setup: in the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**. The site appears at `https://<user>.github.io/hospit-hms/`. A Pages site is public, so keep it to fictional data.
+Every pull request and push runs `.github/workflows/ci-cd.yml`: it builds and tests the server and the web app. On `main`, once both pass, it redeploys the API on Render, waits until Render runs that commit, and then publishes the web app on GitHub Pages at `https://<user>.github.io/hospit-hms/`, so the online demo always has the latest changes. Until the Render deploy hook and API address are set up, the Pages site stays the browser-only prototype.
+
+**Free online demo** (GitHub Pages + Render + Supabase, with role sign-ins and fictional data): step-by-step setup in [docs/DEPLOY.md](docs/DEPLOY.md). A Pages site is public, so keep it to fictional data.
 
 ## Demo mode and live mode
 
 The app runs in one of two modes, set in `public/config.js` (served as `config.js` next to `index.html`, editable after deploy without a rebuild):
 
-- **Demo mode** (`apiUrl: ''`, the default, and what GitHub Pages serves): fictional data in this browser, role picker, everything below.
+- **Demo mode** (`apiUrl: ''`, the default, and what GitHub Pages serves until the online demo is set up): fictional data in this browser, role picker, everything below.
 - **Live mode** (`apiUrl: 'https://your-api-host'`): real staff sign-in against the HospitOS server in `server/`, forced change of temporary passwords, and patients (search, registration with duplicate check, profile, edits) stored on the server with every view and change audited. Real patient records are never written to browser storage. Other modules still show sample data until they are connected. The kiosk does not register patients in live mode.
 
 ## Run HospitOS on your computer (live mode)

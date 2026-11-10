@@ -18,7 +18,7 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/hospit` | JDBC URL. For Supabase add `?sslmode=require`. |
+| `DATABASE_URL` | `jdbc:postgresql://localhost:5432/hospit` | JDBC URL. For Supabase use the Session pooler host and add `?sslmode=require` (see `docs/DEPLOY.md`). |
 | `DATABASE_USER`, `DATABASE_PASSWORD` | `hospit` | |
 | `JWT_SECRET` | dev-only value | **Required in every real environment**, 32+ random characters. |
 | `TOKEN_HOURS` | `8` | Sign-in lifetime. |
@@ -28,6 +28,9 @@ Tests use a separate database (`hospit_test`, or `TEST_DATABASE_URL`) which they
 | `PORT` | `8080` | |
 | `ANTHROPIC_API_KEY` | empty | Turns on the AI operations assistant (Claude). Without it the assistant answers with fixed rules from the same figures. |
 | `HOSPITOS_AI_MODEL` | `claude-opus-5-5` | Claude model for the assistant. |
+| `DB_POOL_SIZE` | `10` | Database connections. Free hosted databases allow few; the online demo uses `5`. |
+| `DEMO_PASSWORD` | empty | Online demo only. Creates one sign-in per role (`admin@hospitos.demo`, `doctor@hospitos.demo`, ...) with this password and resets them to it on every start. Never set it for a real hospital. |
+| `JAVA_OPTS` | empty | Extra JVM flags for the Docker image (the Render free plan sets small-memory flags). |
 | `PORTAL_DEV_OTP` | `false` | `true` returns the patient-portal sign-in code in the API response, for local testing only. Never set it in production. |
 
 ## API (foundation)

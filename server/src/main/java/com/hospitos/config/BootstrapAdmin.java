@@ -8,11 +8,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /** On an empty database, creates the first super administrator from ADMIN_EMAIL and ADMIN_PASSWORD. */
 @Component
+@Order(0) // before DemoAccounts, which would otherwise make the account table non-empty first
 public class BootstrapAdmin implements ApplicationRunner {
   private static final Logger log = LoggerFactory.getLogger(BootstrapAdmin.class);
   private final AppProperties props;

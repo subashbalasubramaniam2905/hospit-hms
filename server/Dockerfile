@@ -10,4 +10,6 @@ RUN useradd --system --uid 1001 app
 USER app
 COPY --from=build /src/target/hospitos-server-*.jar /app/app.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+# JAVA_OPTS adds JVM flags per host, e.g. the small free plan in render.yaml.
+ENV JAVA_OPTS=""
+ENTRYPOINT ["sh", "-c", "exec java -XX:MaxRAMPercentage=75 $JAVA_OPTS -jar /app/app.jar"]
