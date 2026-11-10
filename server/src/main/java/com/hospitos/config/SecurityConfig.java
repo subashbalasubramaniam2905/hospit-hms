@@ -65,7 +65,7 @@ public class SecurityConfig {
         .headers(h -> h.contentSecurityPolicy(c -> c.policyDirectives("default-src 'none'; frame-ancestors 'none'")))
         .authorizeHttpRequests(a -> a
             .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-            .requestMatchers("/actuator/health").permitAll()
+            .requestMatchers("/actuator/health", "/actuator/info").permitAll()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
             .requestMatchers("/api/auth/me", "/api/auth/password").access((auth, ctx) -> new AuthorizationDecision(auth.get() instanceof StaffAuthentication))
             // Patient portal: sign-in with a code sent to the registered mobile, then patient tokens only.

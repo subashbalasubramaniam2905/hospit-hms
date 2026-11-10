@@ -1,7 +1,8 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormBuilder, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService, apiMessage } from '../../core/api/auth.service';
+import { API_URL, ONLINE_DEMO } from '../../core/api/api-config';
 import { SessionService } from '../../core/services/session.service';
 import { SHARED } from '../../shared';
 import { ThemeService } from '../../core/services/theme.service';
@@ -34,6 +35,9 @@ import { ToastService } from '../../core/services/toast.service';
       <form class="form" [formGroup]="f" (ngSubmit)="submit()" novalidate>
         <div><h2>Sign in</h2><p class="muted">@if (live) { Use the account your hospital administrator created for you. } @else { Use your hospital account. In this prototype any password of 6 or more characters works. }</p></div>
         @if (error()) { <div class="banner err" role="alert">{{ error() }}</div> }
+        @if (onlineDemo && server() !== 'ready') {
+          <div class="banner wake" role="status">@if (server() === 'down') { The demo server is not answering yet. It keeps trying; you can also reload the page in a minute. } @else { Starting the demo server. It sleeps when nobody is using it, so the first visit can take about a minute. }</div>
+        }
         <div class="field"><label for="email">Work email</label><input id="email" class="inp" formControlName="email" autocomplete="username">
           @if (f.controls.email.touched && f.controls.email.invalid) { <span class="errmsg">Enter a valid email address.</span> }</div>
         <div class="field"><label for="pw">Password</label>
@@ -44,6 +48,10 @@ import { ToastService } from '../../core/services/toast.service';
         @if (!live) {
         <div class="or"><span>or</span></div>
         <div class="row"><button type="button" class="btn ghost" style="flex:1" (click)="sso()"><lucide-icon name="key-round" [size]="16"></lucide-icon>Single sign-on</button><button type="button" class="btn ghost" style="flex:1" (click)="otp()"><lucide-icon name="smartphone" [size]="16"></lucide-icon>Mobile OTP</button></div>
+        }
+        @if (onlineDemo) {
+          <div class="demo-logins small"><b>Online demo.</b> All data is fictional. Sign in with a role below and the demo password you were given.
+            <div class="chips">@for (a of demoLogins; track a.email) { <button type="button" class="chip" (click)="useDemo(a.email)">{{ a.label }}</button> }</div></div>
         }
         <p class="small muted">Visiting as a patient? <a routerLink="/portal">Open the patient portal</a> · <a routerLink="/kiosk">Self-service kiosk</a></p>
       </form>
@@ -69,6 +77,9 @@ import { ToastService } from '../../core/services/toast.service';
   .form{margin:auto;width:min(400px,100%);display:flex;flex-direction:column;gap:16px;padding:24px 0}.form h2{font-size:26px;font-weight:800;margin-bottom:6px}
   .pw{position:relative}.pw .linkbtn{position:absolute;right:12px;top:50%;transform:translateY(-50%)}
   .banner.err{background:var(--red-soft);color:var(--red);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600}
+  .banner.wake{background:var(--amber-soft);color:color-mix(in srgb,var(--amber) 55%,var(--fg));border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600}
+  .demo-logins{border:1px dashed var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;color:var(--mut)}.demo-logins b{color:var(--fg)}
+  .demo-logins .chips{display:flex;flex-wrap:wrap;gap:6px}.demo-logins .chip{border:1px solid var(--line);background:var(--card);color:inherit;border-radius:999px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
   .or{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:12px}.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--line)}
   @media(max-width:900px){.wrap{grid-template-columns:1fr}.hero{padding-bottom:24px;padding-right:max(24px,env(safe-area-inset-right,0px));padding-left:max(24px,env(safe-area-inset-left,0px))}.hero{padding-top:calc(24px + env(safe-area-inset-top,0px))}.brand{min-height:64px}.docfig{position:absolute;top:calc(20px + env(safe-area-inset-top,0px));right:max(24px,env(safe-area-inset-right,0px));width:64px;height:64px;aspect-ratio:auto;max-height:none;margin:0}.docfig .halo,.float{display:none}.docfig::before{content:"";position:absolute;inset:-4px;border-radius:50%;background:rgba(255,255,255,.18);box-shadow:0 10px 24px -8px rgba(0,0,0,.45)}.docfig .frame{clip-path:circle(50%);background:linear-gradient(170deg,#ffffff,#d4ece6)}.docfig img{width:190%;height:auto;left:-45%;top:4%;bottom:auto;filter:none}}`]
 })
@@ -82,9 +93,36 @@ export class LoginPage {
     password: [this.live ? '' : 'demo1234', [Validators.required, Validators.minLength(6)]],
     remember: [!this.live],
   });
+  onlineDemo = ONLINE_DEMO;
+  server = signal<'checking' | 'waking' | 'down' | 'ready'>('checking');
+  demoLogins = [
+    { label: 'Administrator', email: 'admin@hospitos.demo' }, { label: 'Doctor', email: 'doctor@hospitos.demo' },
+    { label: 'Nurse', email: 'nurse@hospitos.demo' }, { label: 'Front desk', email: 'reception@hospitos.demo' },
+    { label: 'Pharmacy', email: 'pharmacy@hospitos.demo' }, { label: 'Lab', email: 'lab@hospitos.demo' },
+    { label: 'Radiology', email: 'radiology@hospitos.demo' }, { label: 'Billing', email: 'billing@hospitos.demo' },
+    { label: 'HR', email: 'hr@hospitos.demo' }, { label: 'Stores', email: 'stores@hospitos.demo' },
+  ];
   constructor() {
     if (inject(ActivatedRoute).snapshot.queryParamMap.get('expired')) this.error.set('Your session ended. Please sign in again.');
+    if (this.onlineDemo) this.wake(inject(DestroyRef));
   }
+  /** Pings the free-plan server so it starts while the visitor types, and says so if that is slow. */
+  private wake(destroyRef: DestroyRef) {
+    let stopped = false; destroyRef.onDestroy(() => (stopped = true));
+    const slow = setTimeout(() => { if (this.server() === 'checking') this.server.set('waking'); }, 1500);
+    const started = Date.now();
+    const ping = async () => {
+      if (stopped) return;
+      try {
+        const r = await fetch(API_URL + '/actuator/health', { cache: 'no-store' });
+        if (r.ok) { clearTimeout(slow); this.server.set('ready'); return; }
+      } catch { /* still asleep or starting */ }
+      if (Date.now() - started > 120_000) this.server.set('down');
+      setTimeout(ping, 4000);
+    };
+    ping();
+  }
+  useDemo(email: string) { this.f.controls.email.setValue(email); this.f.controls.password.setValue(''); document.getElementById('pw')?.focus(); }
   async submit() {
     this.f.markAllAsTouched(); if (this.f.invalid) return;
     if (!this.live) { this.busy.set(true); setTimeout(() => { this.busy.set(false); this.router.navigate(['/select-role']); }, 700); return; }

@@ -4,6 +4,8 @@ spring:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/hospit}
     username: ${DATABASE_USER:hospit}
     password: ${DATABASE_PASSWORD:hospit}
+    # Free hosted databases (Supabase) allow few connections; the online demo sets DB_POOL_SIZE=5.
+    hikari.maximum-pool-size: ${DB_POOL_SIZE:10}
   flyway:
     locations: ${FLYWAY_LOCATIONS:classpath:db/migration}
   jackson:
@@ -14,7 +16,12 @@ server:
   # Trust X-Forwarded-For only from private-network proxies (Tomcat's default internal-proxies list).
   forward-headers-strategy: native
 management:
-  endpoints.web.exposure.include: health
+  endpoints.web.exposure.include: health,info
+  info.env.enabled: true
+# /actuator/info shows which commit is running, so the deploy pipeline can confirm the newest code is live.
+# Render sets RENDER_GIT_COMMIT on every deploy.
+info:
+  commit: ${RENDER_GIT_COMMIT:${GIT_COMMIT:local}}
 hospitos:
   # Must be at least 32 characters. Set JWT_SECRET in every real environment.
   jwt-secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
@@ -36,3 +43,6 @@ hospitos:
   # Patient portal sign-in codes. No SMS gateway is connected yet; PORTAL_DEV_OTP=true returns the code in the response (local only).
   portal:
     dev-otp: ${PORTAL_DEV_OTP:false}
+  # Online demo only: one sign-in per staff role (admin@hospitos.demo, doctor@hospitos.demo, ...) with this password.
+  demo:
+    password: ${DEMO_PASSWORD:}

@@ -1,0 +1,55 @@
+# Render Blueprint for the HospitOS online demo API (free plan).
+# Render → New → Blueprint → pick this repository. Render reads this file and asks for the values marked sync: false.
+# Step-by-step guide: docs/DEPLOY.md
+#
+# Deploys are started by the GitHub "CI/CD" workflow through a deploy hook, only after the build and tests pass
+# on main, so autoDeployTrigger is off here.
+services:
+  - type: web
+    name: hospitos-api
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    autoDeployTrigger: "off"
+    envVars:
+      # Supabase → Connect → Session pooler. JDBC form, for example
+      # jdbc:postgresql://aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+      # Session pooler user, looks like postgres.abcdefghijklmnop
+      - key: DATABASE_USER
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      # Supabase's free session pooler allows only a few connections.
+      - key: DB_POOL_SIZE
+        value: "5"
+      # Fictional departments, doctors and patients for the demo.
+      - key: FLYWAY_LOCATIONS
+        value: classpath:db/migration,classpath:db/sample
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
+      # The GitHub Pages site. Add more origins comma-separated if the app is served elsewhere.
+      - key: CORS_ORIGINS
+        value: https://subashbalasubramaniam2905.github.io
+      # First super administrator, created on the first start.
+      - key: ADMIN_EMAIL
+        value: superadmin@hospitos.demo
+      - key: ADMIN_NAME
+        value: Super Admin (demo)
+      - key: ADMIN_PASSWORD
+        sync: false
+      # One sign-in per role (doctor@hospitos.demo, reception@hospitos.demo, ...) sharing this password.
+      - key: DEMO_PASSWORD
+        sync: false
+      - key: TZ
+        value: Asia/Kolkata
+      # Fits the JVM into the free plan's 512 MB and starts it faster on its small CPU share.
+      - key: JAVA_OPTS
+        value: -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1 -XX:MaxMetaspaceSize=160m
