@@ -50,7 +50,8 @@ public class DemoAccounts implements ApplicationRunner {
   @Override
   public void run(ApplicationArguments args) {
     if (password == null || password.isBlank()) return;
-    PasswordPolicy.check(password);
+    try { PasswordPolicy.check(password); }
+    catch (RuntimeException e) { throw new IllegalStateException("DEMO_PASSWORD is too weak: it needs at least 10 characters, including a letter and a number"); }
     String hash = encoder.encode(password);
     for (var a : ACCOUNTS) {
       var branches = List.of(a[3].split(","));

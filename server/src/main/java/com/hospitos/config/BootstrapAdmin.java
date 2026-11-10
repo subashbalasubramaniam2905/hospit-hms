@@ -34,7 +34,8 @@ public class BootstrapAdmin implements ApplicationRunner {
       log.warn("No staff accounts exist. Set ADMIN_EMAIL and ADMIN_PASSWORD to create the first super administrator.");
       return;
     }
-    PasswordPolicy.check(a.password());
+    try { PasswordPolicy.check(a.password()); }
+    catch (RuntimeException e) { throw new IllegalStateException("ADMIN_PASSWORD is too weak: it needs at least 10 characters, including a letter and a number"); }
     var id = users.create(a.email(), a.name(), "super-admin", List.of("BR1", "BR2", "BR3"), encoder.encode(a.password()), false);
     audit.write(id, a.name(), "super-admin", null, "Created", "User", id.toString(), "First super administrator (bootstrap)");
     log.info("Created first super administrator {}", a.email());
