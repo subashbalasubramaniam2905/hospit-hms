@@ -85,7 +85,7 @@ export class OrgApi {
 
   // notifications
   messages() { return this.get<SMessage[]>('/api/notifications/messages'); }
-  send(b: { channel: string; type: string; patientIds: string[]; message: string; branchId: string }) { return this.post<{ queued: number; skipped: string[]; messages: SMessage[] }>('/api/notifications/messages', b); }
+  send(b: { channel: string; type: string; patientIds: string[]; message: string; branchId: string }) { return this.post<{ queued: number; skipped: string[]; messages: SMessage[]; sending?: boolean }>('/api/notifications/messages', b); }
   inbox() { return this.get<SInbox[]>('/api/notifications/inbox'); }
   read(id: number) { return this.post<void>(`/api/notifications/inbox/${id}/read`); }
   readAll() { return this.post<void>('/api/notifications/inbox/read-all'); }

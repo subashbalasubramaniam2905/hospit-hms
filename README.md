@@ -29,6 +29,8 @@ Every pull request and push runs `.github/workflows/ci-cd.yml`: it builds and te
 
 **Free online demo** (GitHub Pages + Render + Supabase, with role sign-ins and fictional data): step-by-step setup in [docs/DEPLOY.md](docs/DEPLOY.md). A Pages site is public, so keep it to fictional data.
 
+**WhatsApp messages** (Meta Cloud API, free test number to start): setup in [docs/WHATSAPP.md](docs/WHATSAPP.md).
+
 ## Demo mode and live mode
 
 The app runs in one of two modes, set in `public/config.js` (served as `config.js` next to `index.html`, editable after deploy without a rebuild):

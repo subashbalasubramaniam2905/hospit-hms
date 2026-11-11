@@ -33,7 +33,7 @@ public class NotificationController {
                         String message, String status, String error, String sentBy) {}
   public record SendInput(@NotBlank String channel, @NotBlank String type, @NotEmpty @Size(max = 500) List<@NotBlank String> patientIds,
                           @NotBlank @Size(max = 1000) String message, String branchId) {}
-  public record SendResult(int queued, List<String> skipped, List<Message> messages) {}
+  public record SendResult(int queued, List<String> skipped, List<Message> messages, boolean sending) {}
   public record InboxNote(long id, OffsetDateTime at, String title, String body, String link, String icon, String tone, boolean read) {}
 
   // ------------------------------------------------------------------ patient messages
@@ -49,7 +49,7 @@ public class NotificationController {
         .query(Message.class).list();
   }
 
-  /** Records messages for patients. Nothing is sent until a provider is connected; patients without a mobile or email are skipped. */
+  /** Records messages for patients; WhatsApp ones are sent once WhatsApp is set up. Patients without a mobile or email are skipped. */
   @PostMapping("/messages")
   @PreAuthorize(SENDERS)
   @ResponseStatus(HttpStatus.CREATED)
@@ -66,13 +66,14 @@ public class NotificationController {
       if (p.isEmpty() || !me.canSee(p.get()[3])) { skipped.add(pid + " (not found)"); continue; }
       String to = "Email".equals(in.channel()) ? p.get()[2] : p.get()[1];
       if (to == null || to.isBlank()) { skipped.add(pid + " (no " + ("Email".equals(in.channel()) ? "email" : "mobile") + ")"); continue; }
-      ids.add(notes.queue(p.get()[3], in.channel(), in.type(), pid, p.get()[0] + " · " + to, in.message().trim()));
+      ids.add(notes.queue(p.get()[3], in.channel(), in.type(), pid, p.get()[0] + " · " + to, to.trim(), in.message().trim()));
     }
-    audit.logForBranch(branch, "Sent", "Notification", null, in.type() + " to " + ids.size() + " patient(s) by " + in.channel() + " (queued, no provider)");
+    audit.logForBranch(branch, "Sent", "Notification", null, in.type() + " to " + ids.size() + " patient(s) by " + in.channel()
+        + (notes.canSend(in.channel()) ? " (sending)" : " (queued, no provider)"));
     var list = ids.isEmpty() ? List.<Message>of() : db.sql("""
         select id, at, branch_id, channel, type, patient_id, to_text, message, status, error, sent_by from notification_msg
         where id = any(?) order by id desc""").param(ids.toArray(Long[]::new)).query(Message.class).list();
-    return new SendResult(ids.size(), skipped, list);
+    return new SendResult(ids.size(), skipped, list, notes.canSend(in.channel()));
   }
 
   // ------------------------------------------------------------------ staff inbox

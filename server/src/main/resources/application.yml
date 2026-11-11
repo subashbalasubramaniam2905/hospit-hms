@@ -40,6 +40,11 @@ hospitos:
   ai:
     api-key: ${ANTHROPIC_API_KEY:}
     model: ${HOSPITOS_AI_MODEL:claude-opus-5-5}
+  # WhatsApp Cloud API. Credentials are entered in Admin, Integrations (stored encrypted), not here.
+  whatsapp:
+    graph-url: ${WHATSAPP_GRAPH_URL:https://graph.facebook.com}
+    # How often queued WhatsApp messages are sent, in milliseconds.
+    poll-ms: ${WHATSAPP_POLL_MS:5000}
   # Patient portal sign-in codes. No SMS gateway is connected yet; PORTAL_DEV_OTP=true returns the code in the response (local only).
   portal:
     dev-otp: ${PORTAL_DEV_OTP:false}

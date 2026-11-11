@@ -168,7 +168,7 @@ class OrgTest extends ApiTestBase {
     assertThat(r.get("queued").asInt()).isEqualTo(1);
     assertThat(r.get("skipped").get(0).asText()).contains("HS-00-99999");
     assertThat(r.get("messages").get(0).get("status").asText()).isEqualTo("Queued");
-    assertThat(r.get("messages").get(0).get("error").asText()).contains("No WhatsApp provider");
+    assertThat(r.get("messages").get(0).get("error").asText()).contains("WhatsApp is not set up");
     // Email needs an email address on file.
     var e = body(send(post("/api/notifications/messages"), root, "{\"channel\":\"Email\",\"type\":\"System\",\"patientIds\":[\"" + pid + "\"],\"message\":\"Hello\"}")
         .andExpect(status().isCreated()));
