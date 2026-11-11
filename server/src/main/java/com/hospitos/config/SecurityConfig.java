@@ -123,6 +123,8 @@ public class SecurityConfig {
     cfg.setAllowedOrigins(props.corsOrigins());
     cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     cfg.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+    // Downloads (Tally export) name their file in Content-Disposition, which the browser hides unless exposed.
+    cfg.setExposedHeaders(List.of("Content-Disposition"));
     cfg.setMaxAge(3600L);
     var src = new UrlBasedCorsConfigurationSource();
     src.registerCorsConfiguration("/**", cfg);
