@@ -67,6 +67,8 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
             .requestMatchers("/actuator/health", "/actuator/info").permitAll()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+            // Meta's delivery receipts; the controller checks the verify token and the request signature.
+            .requestMatchers("/api/webhooks/whatsapp").permitAll()
             .requestMatchers("/api/auth/me", "/api/auth/password").access((auth, ctx) -> new AuthorizationDecision(auth.get() instanceof StaffAuthentication))
             // Patient portal: sign-in with a code sent to the registered mobile, then patient tokens only.
             .requestMatchers(HttpMethod.POST, "/api/portal/otp", "/api/portal/verify").permitAll()

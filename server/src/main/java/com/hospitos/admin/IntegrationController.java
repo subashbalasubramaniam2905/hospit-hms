@@ -1,8 +1,8 @@
 package com.hospitos.admin;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hospitos.audit.AuditService;
+import com.hospitos.admin.IntegrationSettings.Row;
 import com.hospitos.common.ApiException;
 import com.hospitos.common.CurrentUser;
 import jakarta.validation.Valid;
@@ -18,8 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Connection settings for outside systems. HospitOS has no live connectors yet, so a connection test only checks that
- * the settings are complete and never sends anything. Secret values are write-only: the API reports whether one is set.
+ * Connection settings for outside systems. A connection test checks that the settings are complete and, for integrations with a
+ * {@link LiveConnector} (WhatsApp so far), checks the real connection without messaging anyone. Secret values are write-only: the
+ * API reports whether one is set.
  */
 @RestController
 @RequestMapping("/api/admin/integrations")
@@ -28,53 +29,42 @@ public class IntegrationController {
   private final JdbcClient db;
   private final ObjectMapper json;
   private final SecretBox box;
+  private final IntegrationSettings settings;
   private final AuditService audit;
-  public IntegrationController(JdbcClient db, ObjectMapper json, SecretBox box, AuditService audit) {
-    this.db = db; this.json = json; this.box = box; this.audit = audit;
+  private final Map<String, LiveConnector> connectors = new LinkedHashMap<>();
+  public IntegrationController(JdbcClient db, ObjectMapper json, SecretBox box, IntegrationSettings settings, AuditService audit,
+                               List<LiveConnector> live) {
+    this.db = db; this.json = json; this.box = box; this.settings = settings; this.audit = audit;
+    live.forEach(c -> connectors.put(c.id(), c));
   }
 
-  public record FieldDef(String key, String label, Boolean secret) {
-    boolean isSecret() { return Boolean.TRUE.equals(secret); }
-  }
   /** A field as the screen shows it. Secret fields carry no value, only whether one is stored. */
-  public record Field(String key, String label, boolean secret, String value, boolean set) {}
+  public record Field(String key, String label, boolean secret, boolean optional, String value, boolean set) {}
   public record Integration(String id, String name, String category, String description, boolean enabled, String status,
-                            List<Field> fields, OffsetDateTime lastTest, String lastResult, int version) {}
+                            List<Field> fields, OffsetDateTime lastTest, String lastResult, int version, boolean live) {}
   public record Update(@NotNull Boolean enabled, @NotNull Map<String, String> values, @NotNull Integer version) {}
   public record TestResult(boolean ok, List<String> log, Integration integration) {}
 
-  private record Row(String id, String name, String category, String description, boolean enabled, List<FieldDef> fields,
-                     Map<String, String> config, Map<String, String> secrets, OffsetDateTime lastTest, String lastResult, int version) {}
-
-  private Row row(String id, boolean lock) {
-    return db.sql("select * from integration where id = ?" + (lock ? " for update" : "")).param(id).query((r, i) -> {
-      try {
-        String sealed = r.getString("secrets");
-        return new Row(r.getString("id"), r.getString("name"), r.getString("category"), r.getString("description"), r.getBoolean("enabled"),
-            json.readValue(r.getString("fields"), new TypeReference<List<FieldDef>>() {}),
-            json.readValue(r.getString("config"), new TypeReference<Map<String, String>>() {}),
-            sealed == null ? new LinkedHashMap<>() : json.readValue(box.open(sealed), new TypeReference<Map<String, String>>() {}),
-            r.getObject("last_test", OffsetDateTime.class), r.getString("last_result"), r.getInt("version"));
-      } catch (java.io.IOException e) { throw new IllegalStateException(e); }
-    }).optional().orElseThrow(() -> new ApiException(404, "Integration not found"));
-  }
-
-  private static List<String> missing(Row r) {
-    return r.fields().stream().filter(f -> blank(f.isSecret() ? r.secrets().get(f.key()) : r.config().get(f.key()))).map(FieldDef::label).toList();
-  }
+  private Row row(String id, boolean lock) { return settings.row(id, lock); }
   private static boolean blank(String s) { return s == null || s.isBlank(); }
 
-  /** Disabled, Not configured (a field is empty), or Configured. Connected needs a live connector, which none have yet. */
-  private static String status(Row r) {
+  /**
+   * Disabled, Not configured (a required field is empty), Configured, or, for integrations with a live connector, Connected after a
+   * successful connection test and Error after a failed one.
+   */
+  private String status(Row r) {
     if (!r.enabled()) return "Disabled";
-    return missing(r).isEmpty() ? "Configured" : "Not configured";
+    if (!r.missing().isEmpty()) return "Not configured";
+    if (connectors.containsKey(r.id()) && r.lastResult() != null) return r.lastResult().startsWith("Connected") ? "Connected" : "Error";
+    return "Configured";
   }
 
   private Integration view(Row r) {
     var fields = r.fields().stream().map(f -> f.isSecret()
-        ? new Field(f.key(), f.label(), true, null, !blank(r.secrets().get(f.key())))
-        : new Field(f.key(), f.label(), false, r.config().getOrDefault(f.key(), ""), !blank(r.config().get(f.key())))).toList();
-    return new Integration(r.id(), r.name(), r.category(), r.description(), r.enabled(), status(r), fields, r.lastTest(), r.lastResult(), r.version());
+        ? new Field(f.key(), f.label(), true, f.isOptional(), null, !blank(r.secrets().get(f.key())))
+        : new Field(f.key(), f.label(), false, f.isOptional(), r.config().getOrDefault(f.key(), ""), !blank(r.config().get(f.key())))).toList();
+    return new Integration(r.id(), r.name(), r.category(), r.description(), r.enabled(), status(r), fields, r.lastTest(), r.lastResult(), r.version(),
+        connectors.containsKey(r.id()));
   }
 
   @GetMapping
@@ -103,10 +93,11 @@ public class IntegrationController {
     }
     try {
       db.sql("""
-          update integration set enabled = ?, config = ?::jsonb, secrets = ?, version = version + 1, updated_by = ?, updated_at = now()
+          update integration set enabled = ?, config = ?::jsonb, secrets = ?, version = version + 1, updated_by = ?, updated_at = now(),
+            last_result = case when ? then null else last_result end
           where id = ?""")
           .params(in.enabled(), json.writeValueAsString(config), secrets.isEmpty() ? null : box.seal(json.writeValueAsString(secrets)),
-              CurrentUser.get().name(), id).update();
+              CurrentUser.get().name(), !changed.isEmpty(), id).update();
     } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalStateException(e); }
     String detail = r.name() + (in.enabled() != r.enabled() ? (in.enabled() ? " enabled" : " disabled") : "")
         + (changed.isEmpty() ? "" : "; changed " + String.join(", ", changed));
@@ -119,18 +110,28 @@ public class IntegrationController {
   public TestResult test(@PathVariable String id) {
     var r = row(id, true);
     var log = new ArrayList<String>();
-    var miss = missing(r);
+    var miss = r.missing();
     boolean ok = miss.isEmpty();
+    var connector = connectors.get(id);
     if (!r.enabled()) log.add("> " + r.name() + " is turned off. Turn it on to use it.");
-    if (ok) {
+    String result;
+    if (!ok) {
+      log.add("> Missing: " + String.join(", ", miss));
+      log.add("> Status: Not configured");
+      result = "Missing " + String.join(", ", miss);
+    } else if (connector != null) {
+      log.add("> All settings are filled in. Checking the connection…");
+      var out = connector.test(r);
+      log.addAll(out.log());
+      ok = out.ok();
+      result = out.summary();
+      log.add("> Status: " + (ok ? "Connected" : "Error"));
+    } else {
       log.add("> All settings are filled in.");
       log.add("> HospitOS does not have a live connector for " + r.name() + " yet, so no request was sent.");
       log.add("> Status: Configured");
-    } else {
-      log.add("> Missing: " + String.join(", ", miss));
-      log.add("> Status: Not configured");
+      result = "Settings complete; no live connector yet";
     }
-    String result = ok ? "Settings complete; no live connector yet" : "Missing " + String.join(", ", miss);
     db.sql("update integration set last_test = now(), last_result = ? where id = ?").params(result, id).update();
     audit.log("Tested", "Integration", id, r.name() + ": " + result);
     return new TestResult(ok, log, view(row(id, false)));

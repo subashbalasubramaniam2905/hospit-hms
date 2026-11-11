@@ -3,7 +3,7 @@ import { SHARED } from '../../shared';
 import { StoreService } from '../../core/services/store.service';
 import { ToastService } from '../../core/services/toast.service';
 import { Integration } from '../../core/models';
-import { LIVE } from '../../core/api/api-config';
+import { API_URL, LIVE } from '../../core/api/api-config';
 import { AdminApi, fromServerIntegration } from '../../core/api/admin-api';
 import { apiMessage } from '../../core/api/auth.service';
 import { KioskDevicesComponent } from '../kiosk/kiosk-devices';
@@ -16,11 +16,11 @@ import { KioskDevicesComponent } from '../kiosk/kiosk-devices';
   template: `
   <div class="page">
     <cf-page-head title="Integrations" [crumbs]="['Organisation', 'Connections']" [sub]="live ? 'Connection settings for government, diagnostic, payment and messaging systems.' : 'Connections to government, diagnostic, payment and messaging systems. Every connection here is a mock: nothing leaves the prototype.'"></cf-page-head>
-    @if (live) {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div><b>Not connected yet.</b> HospitOS stores these settings now, but it does not talk to any of these systems yet, so no message, claim or payment goes out. Secret values are encrypted on the server and never shown again. Only super administrators can open this page's data.</div></div>}
+    @if (live) {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div><b>Only WhatsApp is live.</b> WhatsApp Business sends real messages once it is set up and turned on. The other connections only store their settings for now, so no SMS, claim or payment goes out. Secret values are encrypted on the server and never shown again. Only super administrators can open this page's data.</div></div>}
     @else {<div class="alert-box warn"><lucide-icon name="triangle-alert" [size]="16"></lucide-icon><div><b>Prototype only.</b> No external healthcare APIs are connected. Test connections return simulated results. Credentials shown are placeholders.</div></div>}
     @if (live) {<cf-kiosk-devices></cf-kiosk-devices>}
     <div class="grid">
-      <cf-stat class="c3" [label]="live ? 'Configured' : 'Connected'" [value]="by(live ? 'Configured' : 'Connected')" icon="plug" tone="green"></cf-stat>
+      <cf-stat class="c3" [label]="live ? 'Configured' : 'Connected'" [value]="live ? by('Configured') + by('Connected') : by('Connected')" icon="plug" tone="green"></cf-stat>
       <cf-stat class="c3" label="Errors" [value]="by('Error')" icon="circle-alert" tone="red" [clickable]="true" (click)="cat.set('')"></cf-stat>
       <cf-stat class="c3" label="Not configured" [value]="by('Not configured')" icon="settings" tone="amber"></cf-stat>
       <cf-stat class="c3" label="Disabled" [value]="by('Disabled')" icon="power" tone="violet"></cf-stat>
@@ -42,14 +42,15 @@ import { KioskDevicesComponent } from '../kiosk/kiosk-devices';
       @for (f of i.fields; track f.key) {
         <div class="field"><label>{{ f.label }}</label><input class="inp" [type]="f.secret ? 'password' : 'text'" [(ngModel)]="f.value" autocomplete="off" [placeholder]="f.secret ? (live ? (f.set ? 'Saved. Type a new value to replace it.' : 'Not set') : 'Stored in vault in production') : ''"></div>
       }
-      <div class="field"><label>Connection test</label><div class="log" aria-live="polite">{{ log() || (live ? 'Press Test connection to check the settings. Nothing is sent.' : 'Press Test connection to run a simulated handshake.') }}</div></div>
+      @if (live && i.id === 'wa') {<div class="alert-box info"><lucide-icon name="info" [size]="16"></lucide-icon><div>In your Meta app, set the webhook callback URL to <code>{{ webhook }}</code>, use the same verify token as below, and subscribe to <b>messages</b> to get delivery and read receipts.</div></div>}
+      <div class="field"><label>Connection test</label><div class="log" aria-live="polite">{{ log() || (live ? 'Press Test connection to check the settings. No patient is messaged.' : 'Press Test connection to run a simulated handshake.') }}</div></div>
     }
     @if (sel(); as i) {<div foot><button class="btn ghost" [disabled]="testing()" (click)="test(i)"><lucide-icon name="activity" [size]="16"></lucide-icon>{{ testing() ? 'Testing…' : 'Test connection' }}</button><button class="btn" [disabled]="testing()" (click)="save(i)">Save</button></div>}
   </cf-drawer>`
 })
 export class IntegrationsPage {
   store = inject(StoreService); toast = inject(ToastService); api = inject(AdminApi);
-  live = LIVE; cat = signal(''); sel = signal<Integration | null>(null); log = signal(''); testing = signal(false);
+  live = LIVE; webhook = API_URL + '/api/webhooks/whatsapp'; cat = signal(''); sel = signal<Integration | null>(null); log = signal(''); testing = signal(false);
   all = computed(() => { this.store.rev(); return this.store.db.integrations; });
   cats = computed(() => [...new Set(this.all().map(i => i.category))]);
   list = computed(() => this.all().filter(i => !this.cat() || i.category === this.cat()));
@@ -82,7 +83,7 @@ export class IntegrationsPage {
         if (i.fields.some(f => f.secret ? f.value : false) || this.changed(i)) { this.toast.info('Saving your changes first'); if (!(await this.saveLive(i, false))) return; }
         const r = await this.api.testIntegration(i.id); this.log.set(r.log.join('\n'));
         const u = this.put(fromServerIntegration(r.integration)); this.sel.set(structuredClone(u));
-        r.ok ? this.toast.ok(`${i.name}: settings complete`) : this.toast.err(`${i.name}: settings incomplete`);
+        r.ok ? this.toast.ok(`${i.name}: ${u.status === 'Connected' ? 'connected' : 'settings complete'}`) : this.toast.err(`${i.name}: ${u.status === 'Error' ? 'connection failed' : 'settings incomplete'}`);
       } catch (e) { this.toast.err(apiMessage(e, 'Could not test the connection')); }
       finally { this.testing.set(false); }
       return;

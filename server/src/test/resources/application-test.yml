@@ -8,3 +8,6 @@ hospitos:
     email: admin@test.local
     password: AdminPass123
     name: Test Admin
+  # Tests send queued WhatsApp messages by calling the dispatcher directly.
+  whatsapp:
+    poll-ms: 3600000

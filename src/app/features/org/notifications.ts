@@ -29,7 +29,7 @@ const TEMPLATES: { type: NotificationMsg['type']; text: string }[] = [
   .note .ic { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; flex:none }`],
   template: `
   <div class="page">
-    <cf-page-head title="Notifications" [crumbs]="['Organisation', 'Messaging']" [sub]="live ? 'Patient messages and the staff inbox. No SMS, email or WhatsApp provider is connected yet, so patient messages wait as Queued and nothing is sent.' : 'SMS, email, WhatsApp and in-app messages sent by the hospital. Delivery is simulated; no real messages leave the prototype.'">
+    <cf-page-head title="Notifications" [crumbs]="['Organisation', 'Messaging']" [sub]="live ? 'Patient messages and the staff inbox. WhatsApp messages are sent once WhatsApp is set up under Integrations; SMS and email have no provider yet, so they wait as Queued.' : 'SMS, email, WhatsApp and in-app messages sent by the hospital. Delivery is simulated; no real messages leave the prototype.'">
       <button class="btn ghost" (click)="exportCsv()"><lucide-icon name="download" [size]="16"></lucide-icon>Export</button>
       <button class="btn" (click)="compose.set(true)"><lucide-icon name="send" [size]="16"></lucide-icon>New message</button>
     </cf-page-head>
@@ -143,7 +143,7 @@ export class NotificationsPage {
     this.busy.set(true);
     try {
       const r = await this.api.send({ channel, type, patientIds: ids, message, branchId: this.session.branchId() });
-      if (r.queued) this.toast.ok(`${r.queued} message(s) queued by ${channel}. Nothing is sent until a provider is connected.`);
+      if (r.queued) this.toast.ok(r.sending ? `${r.queued} message(s) sending by ${channel}. The status updates as WhatsApp reports delivery.` : `${r.queued} message(s) queued by ${channel}. Nothing is sent until a provider is connected.`);
       if (r.skipped.length) this.toast.warn(`Skipped: ${r.skipped.join(', ')}`);
       await this.reload(); return true;
     } catch (e) { this.toast.err(apiMessage(e, 'Could not queue the message')); return false; }
