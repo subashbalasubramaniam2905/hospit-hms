@@ -145,6 +145,27 @@ Invoices are never edited once issued: cancel (admin, nothing paid, no open clai
 Other modules raise invoices in-process through `com.hospitos.billing.api.BillingApi` (`createInvoice`, `recordPayment`,
 `isBilled`); the call joins the caller's transaction.
 
+## API (expenses and Tally)
+
+Package `com.hospitos.finance`, Flyway V32 (billing range). Expenses are payments outside pharmacy and store purchases
+(rent, salaries, utilities, repairs...). They are corrected with `PUT` (send `version`) and cancelled, never deleted.
+
+| Method and path | Who | What |
+| --- | --- | --- |
+| `GET /api/expenses?from=&to=&category=&status=&q=&branchId=` | super-admin, admin, billing | Newest first, scoped to the user's branches. |
+| `POST /api/expenses`, `PUT /api/expenses/{id}` | super-admin, admin, billing | `{date, categoryId, payee, description, billNo, amount (before GST), gstAmount, interstate, tdsAmount, payMode (CASH, UPI, CARD, BANK_TRANSFER, CHEQUE, UNPAID), reference, branchId}`. Numbers `EXP-NNNN`. No future dates. |
+| `POST /api/expenses/{id}/cancel` | super-admin, admin | `{reason, version}`. Cancelled expenses stay listed and are left out of totals and Tally. |
+| `GET /api/expenses/summary?branchId=` | accounts | This month, last month, unpaid bills, by category, last 6 months. |
+| `GET/POST /api/expenses/categories`, `PUT /api/expenses/categories/{id}` | read: accounts · write: super-admin, admin | 25 seeded categories, each with its Tally ledger and group. Hide with `active: false`. |
+| `GET /api/tally/settings`, `PUT /api/tally/settings` | read: accounts · write: super-admin, admin | Tally company name and the ledger names used for patients, income per billing category, GST, TDS, round off and each payment mode. |
+| `GET /api/tally/preview?from=&to=&branchId=` | accounts | Voucher counts and totals, warnings and the first 50 vouchers. At most one year. |
+| `GET /api/tally/export?from=&to=&branchId=&format=xml\|masters\|csv` | accounts | TallyPrime XML vouchers, XML ledger masters, or a CSV day book for Excel. Logged in `/api/tally/history` and the audit trail. |
+
+Voucher mapping: invoice → Sales (Dr patients, Cr income per category, Cr output GST, round off); payment → Receipt;
+refund → Payment; expense → Payment (Dr expense ledger and input GST, Cr TDS payable and cash/bank). A voucher whose
+money ledger is not cash or bank (patient advances, unpaid expenses) is written as a Journal. Cancelled invoices are
+left out. The browser demo builds the same files in `src/app/core/services/tally.ts`; keep the two in step.
+
 ## API (pharmacy)
 
 Stock is held per branch. Reads use the signed-in user's first branch unless `?branchId=` names another branch they can see.

@@ -38,6 +38,8 @@ export const routes: Routes = [
       { path: 'billing', loadComponent: () => import('./features/billing/billing').then(m => m.BillingPage), title: 'Billing · HospitOS' },
       { path: 'billing/new', loadComponent: () => import('./features/billing/invoice-new').then(m => m.InvoiceNewPage), title: 'New invoice · HospitOS' },
       { path: 'billing/invoice/:id', loadComponent: () => import('./features/billing/invoice-view').then(m => m.InvoiceViewPage), title: 'Invoice · HospitOS' },
+      { path: 'expenses', loadComponent: () => import('./features/finance/expenses').then(m => m.ExpensesPage), title: 'Expenses · HospitOS' },
+      { path: 'tally', loadComponent: () => import('./features/finance/tally').then(m => m.TallyPage), title: 'Tally export · HospitOS' },
       { path: 'insurance', loadComponent: () => import('./features/billing/insurance').then(m => m.InsurancePage), title: 'Insurance · HospitOS' },
       { path: 'ipd', loadComponent: () => import('./features/ipd/ipd').then(m => m.IpdPage), title: 'Inpatients · HospitOS' },
       { path: 'ipd/beds', loadComponent: () => import('./features/ipd/beds').then(m => m.BedsPage), title: 'Bed management · HospitOS' },

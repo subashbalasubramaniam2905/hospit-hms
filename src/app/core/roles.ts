@@ -53,6 +53,8 @@ export const NAV: NavGroup[] = [
   { label: 'Finance', items: [
     { label: 'Billing', icon: 'indian-rupee', path: '/billing', roles: [...A, 'billing', 'receptionist'] },
     { label: 'Insurance & TPA', icon: 'shield-check', path: '/insurance', roles: [...A, 'billing'] },
+    { label: 'Expenses', icon: 'wallet', path: '/expenses', roles: [...A, 'billing'] },
+    { label: 'Tally export', icon: 'file-spreadsheet', path: '/tally', roles: [...A, 'billing'] },
     { label: 'Revenue leakage', icon: 'trending-down', path: '/revenue-leakage', roles: [...A, 'billing'] },
   ] },
   { label: 'Insights', items: [
